@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from app.models.intelligence import LLMEnrichment, LLMStatus
+
 Classification = Literal["FACT", "INFERENCE", "CONFLICT", "UNKNOWN"]
 
 
@@ -70,3 +72,5 @@ class IncidentAnalysis(BaseModel):
     unknowns: list[str]
     missing_evidence: list[str]
     file_errors: list[str] = Field(default_factory=list)
+    llm_status: LLMStatus = "unavailable"
+    llm_enrichment: LLMEnrichment | None = None

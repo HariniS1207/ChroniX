@@ -17,9 +17,10 @@ Evidence -> Events -> Correlation -> Timeline -> Incident Intelligence. The app 
 ## Architecture
 
 - FastAPI handles uploads and the `/api/v1/incidents/analyze` endpoint.
-- Connectors normalize source inputs into a common Evidence model. The file connector delegates CSV, text/log, and PDF parsing to the existing processors; a generic webhook connector is ready for future producers.
+- FastAPI also accepts normalized operational events at `/api/v1/webhooks/events`, keeps them in isolated in-memory active state, and exposes `/api/v1/incidents/active` and `/api/v1/incidents/analyze-active` for the MVP demo.
+- Connectors normalize source inputs into a common Evidence model. The file connector delegates CSV, text/log, and PDF parsing to the existing processors; the generic webhook connector is exercised by the local demo service.
 - The analysis service correlates keyword-overlapping events, sorts timestamps, and classifies claims.
-- The optional LLM adapter is isolated in `backend/app/services/llm_service.py`; local analysis remains the fallback.
+- The LLM adapter is isolated in `backend/app/services/llm_service.py`. It receives deterministic structured context, returns typed evidence-referenced enrichment, and cannot rewrite the grounded timeline or root-cause status.
 - React renders the upload workflow and evidence timeline.
 
 ## Tech Stack
@@ -33,6 +34,7 @@ backend/app/       API, connectors, models, processors, and analysis services
 backend/tests/     Core pipeline and endpoint tests
 frontend/src/      ChroniX dashboard
 sample_data/       Coherent payment incident demo evidence
+demo_service/      External FastAPI payment service for webhook delivery
 ```
 
 ## Setup
@@ -56,9 +58,17 @@ uvicorn app.main:app --app-dir backend --reload
 
 The API is available at `http://localhost:8000`.
 
-### Optional LLM narrative
+### LLM enrichment
 
-Set `OPENAI_API_KEY` to enable the structured narrative adapter. Optional settings are `OPENAI_BASE_URL` for an OpenAI-compatible provider and `OPENAI_MODEL` (default `gpt-4o-mini`). Timeline events remain the locally extracted, source-linked events; API failures automatically use the deterministic analysis.
+Copy `.env.example` to `.env` or export the variables in the shell:
+
+```powershell
+$env:OPENAI_API_KEY="your_key_here"
+$env:OPENAI_BASE_URL="https://api.openai.com/v1"
+$env:OPENAI_MODEL="gpt-4o-mini"
+```
+
+The adapter uses `httpx` and the OpenAI-compatible `/chat/completions` endpoint. The dashboard reports `used`, `unavailable`, `failed`, or `invalid_response`. Without a key, or when a request/response fails validation, ChroniX keeps deterministic analysis and does not display fabricated AI output.
 
 ## Running Frontend
 
@@ -69,6 +79,24 @@ npm run dev --prefix frontend
 ```
 
 Open the Vite URL, normally `http://localhost:5173`.
+
+## Running the Webhook Demo
+
+Start the separate payment service in another terminal:
+
+```powershell
+pip install -r demo_service\requirements.txt
+$env:CHRONIX_WEBHOOK_URL="http://127.0.0.1:8000/api/v1/webhooks/events"
+uvicorn main:app --app-dir demo_service --port 8001
+```
+
+Then send seven real HTTP events into ChroniX:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8001/simulate-incident
+```
+
+The dashboard's Live Sources panel polls the active event count. Use **Analyze Active Incident** to run the same analysis pipeline used by file uploads. Replaying the simulation returns duplicate responses for the existing `source_id` values and does not grow active state.
 
 ## Demo
 

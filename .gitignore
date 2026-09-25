@@ -5,3 +5,4 @@ node_modules/
 frontend/dist/
 .env
 .pytest_cache/
+.env.example
