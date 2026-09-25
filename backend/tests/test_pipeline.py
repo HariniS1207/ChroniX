@@ -1,3 +1,6 @@
+import time
+from threading import Event
+
 import httpx
 
 from fastapi.testclient import TestClient
@@ -7,8 +10,9 @@ from app.connectors.webhook_connector import WebhookConnector
 from app.main import app
 from app.models.incident import Evidence
 from app.processors.evidence import extract_csv, extract_lines, extract_pdf, parse_timestamp
+from app.services.active_incident import ActiveIncidentStore, active_incident
 from app.services.analysis_service import analyze
-from app.services.llm_service import enrich_with_llm
+from app.services.llm_service import _messages, enrich_with_llm
 
 client = TestClient(app)
 
@@ -158,6 +162,118 @@ def test_multiple_webhook_events_are_kept_as_separate_evidence():
     assert {first["source_id"], second["source_id"]}.issubset(active_ids)
 
 
+def wait_for(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return predicate()
+
+
+def test_webhook_returns_without_waiting_for_llm(monkeypatch):
+    active_incident.clear()
+    started = Event()
+    release = Event()
+
+    def blocked_enrichment(analysis):
+        started.set()
+        release.wait(5)
+        return analysis.model_copy(update={"llm_status": "local", "llm_enrichment": None})
+
+    monkeypatch.setattr("app.services.llm_service.enrich_with_llm", blocked_enrichment)
+    began = time.monotonic()
+    response = client.post("/api/v1/webhooks/events", json=webhook_payload("fast-webhook-001"))
+    elapsed = time.monotonic() - began
+    release.set()
+
+    assert response.json()["status"] == "accepted"
+    assert elapsed < 0.2
+    assert wait_for(started.is_set)
+
+
+def test_seven_webhooks_are_accepted_without_waiting_for_enrichment():
+    active_incident.clear()
+    responses = [client.post("/api/v1/webhooks/events", json=webhook_payload(f"rapid-http-{index:03d}")).json() for index in range(7)]
+    assert [response["status"] for response in responses] == ["accepted"] * 7
+    assert len(active_incident.snapshot()) == 7
+
+
+def test_rapid_webhooks_coalesce_to_one_llm_call(monkeypatch):
+    active_incident.clear()
+    calls = []
+    completed = Event()
+
+    def count_enrichment(analysis):
+        calls.append(len(analysis.timeline))
+        completed.set()
+        return analysis.model_copy(update={"llm_status": "local", "llm_enrichment": None})
+
+    store = ActiveIncidentStore(enrichment=count_enrichment)
+    store.clear()
+    for index in range(7):
+        payload = webhook_payload(f"coalesced-{index:03d}")
+        payload["timestamp"] = f"2026-09-25T15:{index:02d}:00"
+        payload["event"] = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf"][index]
+        payload["raw_evidence"] = f"Payment evidence {index}"
+        assert store.add(WebhookConnector(payload).collect()[0])
+
+    assert completed.wait(5)
+    assert calls == [7]
+    assert len(store.snapshot()) == 7
+
+
+def test_llm_failure_keeps_deterministic_analysis_available(monkeypatch):
+    active_incident.clear()
+
+    def failed_enrichment(analysis):
+        return analysis.model_copy(update={"llm_status": "local_failed", "llm_enrichment": None})
+
+    monkeypatch.setattr("app.services.llm_service.enrich_with_llm", failed_enrichment)
+    response = client.post("/api/v1/webhooks/events", json=webhook_payload("failed-llm-001"))
+    assert response.json()["status"] == "accepted"
+    assert wait_for(lambda: active_incident.latest_analysis() is not None and active_incident.latest_analysis().llm_status == "local_failed")
+    analysis = active_incident.latest_analysis()
+    assert analysis is not None
+    assert len(analysis.timeline) == 1
+    assert analysis.root_cause_status == "NOT CONFIRMED"
+
+
+def test_stale_llm_result_cannot_overwrite_newer_evidence(monkeypatch):
+    active_incident.clear()
+    first_started = Event()
+    release_first = Event()
+    calls = []
+
+    def stale_enrichment(analysis):
+        calls.append(len(analysis.timeline))
+        if len(calls) == 1:
+            first_started.set()
+            release_first.wait(5)
+        return analysis.model_copy(update={"llm_status": "local", "llm_enrichment": None})
+
+    store = ActiveIncidentStore(enrichment=stale_enrichment)
+    store.clear()
+    first_payload = webhook_payload("stale-001")
+    first_payload["event"] = "alpha"
+    first_payload["raw_evidence"] = "First payment evidence"
+    assert store.add(WebhookConnector(first_payload).collect()[0])
+    assert first_started.wait(5)
+    second_payload = webhook_payload("stale-002")
+    second_payload["timestamp"] = "2026-09-25T15:01:00"
+    second_payload["event"] = "bravo"
+    second_payload["raw_evidence"] = "Second payment evidence"
+    assert store.add(WebhookConnector(second_payload).collect()[0])
+    release_first.set()
+
+    assert wait_for(lambda: len(calls) == 2)
+    analysis = store.latest_analysis()
+    assert analysis is not None
+    assert calls == [1, 2]
+    assert len(analysis.timeline) == 2
+    assert analysis.root_cause_status == "NOT CONFIRMED"
+
+
 class FakeLLMResponse:
     def __init__(self, content: str):
         self.content = content
@@ -253,6 +369,43 @@ def test_ollama_success_returns_local_status(monkeypatch):
     assert enriched.timeline[0].raw_evidence == analysis.timeline[0].raw_evidence
 
 
+def test_ollama_prompt_is_compact_and_output_is_bounded(monkeypatch):
+    monkeypatch.setenv("CHRONIX_LLM_PROVIDER", "ollama")
+    captured = {}
+    content = '{"incident_summary":"Observed errors.","probable_causes":[],"contributing_factors":[],"causal_relationships":[],"evidence_interpretations":[],"uncertainty":[],"missing_evidence":[],"investigation_recommendations":[]}'
+
+    def capture_post(*args, **kwargs):
+        captured.update(kwargs)
+        return FakeOllamaResponse(content)
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", capture_post)
+    analysis = llm_analysis()
+    messages, input_chars, approx_tokens = _messages(analysis)
+    enriched = enrich_with_llm(analysis)
+
+    assert enriched.llm_status == "local"
+    assert input_chars == sum(len(message["content"]) for message in messages)
+    assert approx_tokens > 0
+    assert "deterministic_facts" not in messages[1]["content"]
+    assert "raw_evidence" not in messages[1]["content"]
+    assert isinstance(captured["json"]["format"], dict)
+    assert captured["json"]["think"] is False
+    assert captured["json"]["options"]["num_predict"] == 768
+
+
+def test_ollama_timeout_returns_local_failed(monkeypatch):
+    monkeypatch.setenv("CHRONIX_LLM_PROVIDER", "ollama")
+
+    def timed_out_post(*args, **kwargs):
+        raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr("app.services.llm_service.httpx.post", timed_out_post)
+    enriched = enrich_with_llm(llm_analysis())
+    assert enriched.llm_status == "local_failed"
+    assert enriched.llm_enrichment is None
+    assert enriched.root_cause_status == "NOT CONFIRMED"
+
+
 def test_ollama_unavailable_preserves_deterministic_result(monkeypatch):
     monkeypatch.setenv("CHRONIX_LLM_PROVIDER", "ollama")
 
@@ -261,6 +414,6 @@ def test_ollama_unavailable_preserves_deterministic_result(monkeypatch):
 
     monkeypatch.setattr("app.services.llm_service.httpx.post", unavailable_post)
     enriched = enrich_with_llm(llm_analysis())
-    assert enriched.llm_status == "failed"
+    assert enriched.llm_status == "local_unavailable"
     assert enriched.llm_enrichment is None
     assert enriched.root_cause_status == "NOT CONFIRMED"

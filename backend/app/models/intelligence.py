@@ -2,7 +2,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-LLMStatus = Literal["local", "used", "unavailable", "failed", "invalid_response"]
+LLMStatus = Literal[
+    "local_pending",
+    "local_processing",
+    "local",
+    "local_unavailable",
+    "local_failed",
+    "invalid_response",
+    "used",
+    "unavailable",
+    "failed",
+]
 
 
 class EnrichmentClaim(BaseModel):

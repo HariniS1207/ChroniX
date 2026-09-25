@@ -12,5 +12,4 @@ def receive_event(payload: Evidence) -> dict[str, str | int]:
     evidence = WebhookConnector(payload.model_dump()).collect()[0]
     if not active_incident.add(evidence):
         return {"status": "duplicate", "source_id": evidence.source_id}
-    active_incident.refresh()
     return {"status": "accepted", "source_id": evidence.source_id, "incident_events": len(active_incident.snapshot())}

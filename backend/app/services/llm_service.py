@@ -1,8 +1,10 @@
 """Evidence-grounded LLM enrichment with explicit failure states."""
 
 import json
+import logging
 import os
 import re
+from time import perf_counter
 
 import httpx
 from pydantic import ValidationError
@@ -10,20 +12,17 @@ from pydantic import ValidationError
 from app.models.incident import IncidentAnalysis
 from app.models.intelligence import EnrichmentClaim, LLMEnrichment
 
-SYSTEM_PROMPT = """You are an evidence-constrained incident intelligence analyst.
-Evidence supplied by ChroniX is authoritative. Return valid JSON only.
-Do not invent events, timestamps, sources, evidence IDs, or causal certainty.
-Use only evidence IDs present in the supplied context. Distinguish observations
-from interpretations, preserve uncertainty, identify conflicts and missing
-evidence, and never force a root cause. The deterministic root-cause status and
-FACT classifications are authoritative and must not be rewritten.
+logger = logging.getLogger(__name__)
 
-Return an object with exactly these logical fields:
+SYSTEM_PROMPT = """You are ChroniX's evidence-constrained incident analyst.
+Return only one concise JSON object with exactly these fields:
 incident_summary, probable_causes, contributing_factors, causal_relationships,
 evidence_interpretations, uncertainty, missing_evidence,
 investigation_recommendations.
-Each claim is an object with description, evidence_ids, and optional confidence
-between 0 and 1. Return structured JSON, not markdown."""
+Use only supplied evidence IDs. Never invent events, IDs, timestamps, causes, or
+certainty. Preserve uncertainty and the deterministic root-cause status.
+Claims have description, evidence_ids, and optional confidence from 0 to 1.
+Do not return markdown, explanations, or reasoning."""
 
 
 def _json_content(content: str) -> dict:
@@ -40,25 +39,31 @@ def _status(analysis: IncidentAnalysis, status: str, enrichment: LLMEnrichment |
 def _context(analysis: IncidentAnalysis) -> dict:
     return {
         "incident_title": analysis.incident_title,
-        "deterministic_root_cause_status": analysis.root_cause_status,
-        "timeline": [
+        "root_cause_status": analysis.root_cause_status,
+        "evidence": [
             {
                 "evidence_id": event.source_id,
-                "source_id": event.source_id,
-                "source": event.source,
                 "timestamp": event.timestamp.isoformat() if event.timestamp else None,
                 "event": event.event,
                 "classification": event.classification,
-                "raw_evidence": event.raw_evidence,
+                "source": event.source,
+                "evidence": event.raw_evidence,
             }
             for event in analysis.timeline
         ],
-        "deterministic_facts": analysis.facts,
-        "deterministic_inferences": analysis.inferences,
-        "deterministic_conflicts": analysis.conflicts,
-        "deterministic_unknowns": analysis.unknowns,
-        "deterministic_missing_evidence": analysis.missing_evidence,
+        "known_conflicts": analysis.conflicts,
+        "missing_evidence": analysis.missing_evidence,
     }
+
+
+def _messages(analysis: IncidentAnalysis) -> tuple[list[dict[str, str]], int, int]:
+    context = json.dumps({"incident": _context(analysis)}, separators=(",", ":"))
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": context},
+    ]
+    input_chars = len(SYSTEM_PROMPT) + len(context)
+    return messages, input_chars, max(1, round(input_chars / 4))
 
 
 def _claim_references(enrichment: LLMEnrichment) -> list[EnrichmentClaim]:
@@ -97,22 +102,40 @@ def enrich_with_llm(analysis: IncidentAnalysis) -> IncidentAnalysis:
     if provider in {"", "disabled", "none"}:
         return _status(analysis, "unavailable")
 
-    context = _context(analysis)
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps({"incident_context": context})},
-    ]
+    messages, input_chars, approx_input_tokens = _messages(analysis)
 
     if provider == "ollama":
+        ollama_timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90"))
+        max_output_tokens = int(os.getenv("OLLAMA_NUM_PREDICT", "768"))
+        logger.info(
+            "Ollama enrichment request: events=%d input_chars=%d approx_input_tokens=%d max_output_tokens=%d",
+            len(analysis.timeline),
+            input_chars,
+            approx_input_tokens,
+            max_output_tokens,
+        )
+        started = perf_counter()
         try:
             response = httpx.post(
                 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/") + "/api/chat",
-                json={"model": os.getenv("OLLAMA_MODEL", "qwen3:4b"), "stream": False, "format": "json", "messages": messages},
-                timeout=60,
+                json={
+                    "model": os.getenv("OLLAMA_MODEL", "qwen3:4b"),
+                    "stream": False,
+                    "format": LLMEnrichment.model_json_schema(),
+                    "think": False,
+                    "options": {"temperature": 0, "num_predict": max_output_tokens},
+                    "messages": messages,
+                },
+                timeout=ollama_timeout,
             )
             response.raise_for_status()
+        except httpx.ConnectError:
+            logger.warning("Ollama enrichment unavailable after %.2fs", perf_counter() - started)
+            return _status(analysis, "local_unavailable")
         except httpx.HTTPError:
-            return _status(analysis, "failed")
+            logger.warning("Ollama enrichment failed after %.2fs", perf_counter() - started)
+            return _status(analysis, "local_failed")
+        logger.info("Ollama enrichment response received in %.2fs", perf_counter() - started)
         try:
             generated = _json_content(_ollama_response_content(response))
             enrichment = LLMEnrichment.model_validate(generated)

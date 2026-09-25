@@ -17,10 +17,11 @@ Evidence -> Events -> Correlation -> Timeline -> Incident Intelligence. The app 
 ## Architecture
 
 - FastAPI handles uploads and the `/api/v1/incidents/analyze` endpoint.
-- FastAPI also accepts normalized operational events at `/api/v1/webhooks/events`, keeps them in isolated in-memory active state, and exposes `/api/v1/incidents/active` and `/api/v1/incidents/analyze-active` for the MVP demo.
+- FastAPI also accepts normalized operational events at `/api/v1/webhooks/events`, keeps a fast in-memory active view backed by SQLite, and exposes `/api/v1/incidents/active` and `/api/v1/incidents/analyze-active` for the MVP demo.
 - Connectors normalize source inputs into a common Evidence model. The file connector delegates CSV, text/log, and PDF parsing to the existing processors; the generic webhook connector is exercised by the local demo service.
 - The analysis service correlates keyword-overlapping events, sorts timestamps, and classifies claims.
 - The LLM adapter is isolated in `backend/app/services/llm_service.py`. It receives deterministic structured context, returns typed evidence-referenced enrichment, and cannot rewrite the grounded timeline or root-cause status.
+- SQLite persistence is isolated in `backend/app/db/`. The repository stores incidents, evidence, relationships, and revisioned analyses so active evidence survives backend restarts. The repository boundary is intentionally small so a future PostgreSQL implementation can replace it without changing API routes.
 - React renders the upload workflow and evidence timeline.
 
 ## Tech Stack
@@ -57,6 +58,16 @@ uvicorn app.main:app --app-dir backend --reload
 ```
 
 The API is available at `http://localhost:8000`.
+
+### SQLite persistence
+
+SQLite is used for development. The database path is configurable and its parent directory is created automatically:
+
+```powershell
+$env:CHRONIX_DB_PATH="./data/chronix.db"
+```
+
+The persisted incident list is available at `GET /api/v1/incidents`. Resetting the active incident archives it for persistence while allowing the next event to start a new active incident.
 
 ### LLM enrichment
 

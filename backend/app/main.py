@@ -10,11 +10,13 @@ if not os.getenv("CHRONIX_TESTING"):
     load_dotenv(BACKEND_DIR / ".env", override=False)
 
 from app.api.incidents import router as incidents_router
+from app.api.evidence import router as evidence_router
 from app.api.webhooks import router as webhooks_router
 
 app = FastAPI(title="ChroniX", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5175", "http://127.0.0.1:5175"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5175", "http://127.0.0.1:5175", "http://localhost:5176", "http://127.0.0.1:5176"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(incidents_router)
+app.include_router(evidence_router)
 app.include_router(webhooks_router)
 
 

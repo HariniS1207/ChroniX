@@ -1,12 +1,14 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.connectors.file_connector import FileConnector
+from app.db.repositories import IncidentRepository
 from app.models.incident import IncidentAnalysis
 from app.services.analysis_service import analyze
 from app.services.active_incident import active_incident
 from app.services.llm_service import enrich_with_llm
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
+repository = IncidentRepository()
 
 
 @router.post("/analyze", response_model=IncidentAnalysis)
@@ -28,6 +30,19 @@ async def analyze_incident(files: list[UploadFile] = File(...)) -> IncidentAnaly
 def get_active_incident() -> dict[str, object]:
     events = active_incident.snapshot()
     return {"events": events, "count": len(events)}
+
+
+@router.get("")
+def list_incidents() -> list[dict]:
+    return repository.list_incidents()
+
+
+@router.get("/{incident_id}")
+def get_incident_detail(incident_id: str) -> dict:
+    detail = repository.get_incident_detail(incident_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return detail
 
 
 @router.post("/active/reset")
