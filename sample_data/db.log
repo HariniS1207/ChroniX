@@ -1,0 +1,3 @@
+2026-09-25 10:03:00 DB connection timeout observed on payment pool
+2026-09-25 10:07:00 Database pool metrics missing from incident export
+2026-09-25 10:12:00 Database CPU and connection metrics returned to normal

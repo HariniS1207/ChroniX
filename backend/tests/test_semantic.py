@@ -15,6 +15,13 @@ def test_semantic_similarity_detects_related_operational_events():
     assert unrelated_sim < sim, f"Expected unrelated similarity {unrelated_sim} < {sim}"
 
 
+def test_domain_aliases_capture_operations_language_without_generic_edges():
+    correlator = SemanticCorrelator(threshold=0.35)
+    assert correlator.compute_similarity("gateway timeout at checkout", "high API latency") > 0.35
+    assert correlator.compute_similarity("service restarted", "service recovery completed") > 0.35
+    assert correlator.compute_similarity("service health event", "service startup event") == 0.0
+
+
 def test_semantic_correlator_produces_traceable_relationships():
     events = [
         Event(

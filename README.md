@@ -1,120 +1,119 @@
 # ChroniX
 
-ChroniX is an evidence-driven incident intelligence MVP. It accepts fragmented operational evidence and reconstructs a traceable incident story where every event keeps its timestamp, source, evidence, and classification.
+**Evidence-Driven Incident Intelligence** turns fragmented operational evidence into one chronological, traceable incident story. Deterministic evidence remains the source of truth: conclusions link to evidence, uncertainty stays visible, and root cause remains **NOT CONFIRMED** unless evidence establishes it.
 
-## Problem
+## Features
 
-Incidents are spread across monitoring exports, deployment logs, engineer conversations, and reports. Manually reconstructing what happened makes it easy to miss sequence, context, or uncertainty.
+- FastAPI webhook and file evidence ingestion with normalization, validation, and deduplication.
+- Timestamp-sorted incident timelines classified as FACT, INFERENCE, CONFLICT, or UNKNOWN.
+- Deterministic chronology, semantic correlation, conflict links, and evidence graph with source IDs, confidence, and basis.
+- SQLite persistence, incident revisions, restart recovery, archive/reset, and historical incident detail.
+- Optional asynchronous local Ollama enrichment. It cannot change deterministic classification or root cause; evidence references are checked.
+- React dashboard for live incidents, history, file uploads, investigation gaps, and relationships.
+- Separate demo service sends seven repeatable payment incident events.
 
-## Solution
+## Architecture and stack
 
-ChroniX extracts timestamped events from CSV, TXT/LOG, and PDF uploads, correlates related signals, sorts them into a timeline, and separates facts from inferences, conflicts, and unknowns. The deterministic fallback works without an API key.
+- `backend/`: FastAPI, Pydantic, SQLite, evidence processors, analysis, and optional Ollama integration.
+- `frontend/`: React, Vite, and CSS; no graph library is required.
+- `demo_service/`: separate FastAPI service that posts sample events to the webhook API.
+- `sample_data/`: small example logs, metrics, JSON, text, and PDF evidence.
 
-## Core Differentiator
+SQLite is suitable for local and single-node deployment. This project does not implement distributed processing or production-scale infrastructure.
 
-Evidence -> Events -> Correlation -> Timeline -> Incident Intelligence. The app does not present an unsupported summary: each timeline item links back to the source evidence that produced it.
+## Requirements and installation
 
-## Architecture
-
-- FastAPI handles uploads and the `/api/v1/incidents/analyze` endpoint.
-- FastAPI also accepts normalized operational events at `/api/v1/webhooks/events`, keeps a fast in-memory active view backed by SQLite, and exposes `/api/v1/incidents/active` and `/api/v1/incidents/analyze-active` for the MVP demo.
-- Connectors normalize source inputs into a common Evidence model. The file connector delegates CSV, text/log, and PDF parsing to the existing processors; the generic webhook connector is exercised by the local demo service.
-- The analysis service correlates keyword-overlapping events, sorts timestamps, and classifies claims.
-- The LLM adapter is isolated in `backend/app/services/llm_service.py`. It receives deterministic structured context, returns typed evidence-referenced enrichment, and cannot rewrite the grounded timeline or root-cause status.
-- SQLite persistence is isolated in `backend/app/db/`. The repository stores incidents, evidence, relationships, and revisioned analyses so active evidence survives backend restarts. The repository boundary is intentionally small so a future PostgreSQL implementation can replace it without changing API routes.
-- React renders the upload workflow and evidence timeline.
-
-## Tech Stack
-
-Python, FastAPI, Pydantic, pypdf, React, Vite, and CSS.
-
-## Project Structure
-
-```text
-backend/app/       API, connectors, models, processors, and analysis services
-backend/tests/     Core pipeline and endpoint tests
-frontend/src/      ChroniX dashboard
-sample_data/       Coherent payment incident demo evidence
-demo_service/      External FastAPI payment service for webhook delivery
-```
-
-## Setup
-
-Requires Python 3.11+ and Node.js 18+. Python 3.14 users should use a current Pydantic release, as captured by the backend requirement range.
+Requires Python 3.11+ and Node.js 18+. From the repository root, in PowerShell:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r backend\requirements.txt
+pip install -r demo_service\requirements.txt
 npm install --prefix frontend
 ```
 
-## Running Backend
+Copy `.env.example` to `backend/.env` if you want to configure Ollama. The backend loads that file automatically. Configuration can also be set as environment variables:
 
-From the repository root:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CHRONIX_DB_PATH` | `./data/chronix.db` | SQLite database path |
+| `CHRONIX_LLM_PROVIDER` | `ollama` | Set `disabled` to turn off enrichment |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server |
+| `OLLAMA_MODEL` | `qwen3:4b` | Local model name |
+| `OLLAMA_TIMEOUT_SECONDS` | `90` | Enrichment request timeout |
+| `CHRONIX_MAX_UPLOAD_MB` | `10` | Maximum upload size |
+| `CHRONIX_WEBHOOK_URL` | `http://127.0.0.1:8001/api/v1/webhooks/events` | Demo service target |
+| `VITE_API_URL` | `http://localhost:8001` | Frontend API base URL |
+| `VITE_DEMO_URL` | `http://localhost:9000` | Demo service base URL |
+
+## Run the application
+
+Start each service in its own terminal from the repository root:
 
 ```powershell
-uvicorn app.main:app --app-dir backend --reload
+# Backend on port 8001
+uvicorn app.main:app --app-dir backend --reload --port 8001
 ```
 
-The API is available at `http://localhost:8000`.
-
-### SQLite persistence
-
-SQLite is used for development. The database path is configurable and its parent directory is created automatically:
-
 ```powershell
-$env:CHRONIX_DB_PATH="./data/chronix.db"
-```
-
-The persisted incident list is available at `GET /api/v1/incidents`. Resetting the active incident archives it for persistence while allowing the next event to start a new active incident.
-
-### LLM enrichment
-
-Copy `.env.example` to `.env` or export the variables in the shell:
-
-```powershell
-$env:OPENAI_API_KEY="your_key_here"
-$env:OPENAI_BASE_URL="https://api.openai.com/v1"
-$env:OPENAI_MODEL="gpt-4o-mini"
-```
-
-The adapter uses `httpx` and the OpenAI-compatible `/chat/completions` endpoint. The dashboard reports `used`, `unavailable`, `failed`, or `invalid_response`. Without a key, or when a request/response fails validation, ChroniX keeps deterministic analysis and does not display fabricated AI output.
-
-## Running Frontend
-
-In another terminal:
-
-```powershell
+# Frontend on port 5173
 npm run dev --prefix frontend
 ```
 
-Open the Vite URL, normally `http://localhost:5173`.
-
-## Running the Webhook Demo
-
-Start the separate payment service in another terminal:
-
 ```powershell
-pip install -r demo_service\requirements.txt
-$env:CHRONIX_WEBHOOK_URL="http://127.0.0.1:8000/api/v1/webhooks/events"
-uvicorn main:app --app-dir demo_service --port 8001
+# Demo service on port 9000
+uvicorn main:app --app-dir demo_service --reload --port 9000
 ```
 
-Then send seven real HTTP events into ChroniX:
+Open the Vite URL (usually `http://localhost:5173`). To enable local enrichment, install and start [Ollama](https://ollama.com/), then fetch the model once:
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8001/simulate-incident
+ollama pull qwen3:4b
 ```
 
-The dashboard's Live Sources panel polls the active event count. Use **Analyze Active Incident** to run the same analysis pipeline used by file uploads. Replaying the simulation returns duplicate responses for the existing `source_id` values and does not grow active state.
+The system remains usable if Ollama is not installed or running. It reports local unavailability and retains deterministic analysis.
 
-## Demo
+## Demo workflow
 
-Upload `sample_data/monitoring.csv`, `sample_data/engineer_chat.txt`, `sample_data/deployment.log`, and `sample_data/incident_report.pdf`. The payment API incident shows increased errors, suspected database trouble, a payment-service restart, and recovery signals. The root cause remains **NOT CONFIRMED** because database query/error logs are missing.
-
-## Tests
+1. Start backend, frontend, and demo service.
+2. In the dashboard, trigger the demo service's `POST /simulate-incident` (or run the command below).
+3. Analyze the active incident and review its seven events, classifications, relationships, uncertainty, missing evidence, and any local enrichment.
+4. Upload a TXT, LOG, CSV, JSON, or text PDF file to add evidence; open **Incident History** to review archived incidents.
 
 ```powershell
-pytest backend\tests
+Invoke-RestMethod -Method Post http://localhost:9000/simulate-incident
+```
+
+The seeded incident includes an API error increase, a database timeout, a deployment, a suspected failure, a restart, and recovery signals. These observations do not prove the database caused the incident. The analysis should keep root cause **NOT CONFIRMED** and show gaps such as database query/error logs, connection pool metrics, and deployment impact analysis. Replaying the same simulation is safe because event source IDs are deduplicated.
+
+## API endpoints
+
+Backend base URL: `http://localhost:8001`.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Health status |
+| `POST` | `/api/v1/webhooks/events` | Ingest one normalized event |
+| `GET` | `/api/v1/incidents/active` | Active evidence and count |
+| `POST` | `/api/v1/incidents/analyze-active` | Analyze active incident |
+| `GET` | `/api/v1/incidents/active/intelligence` | Latest active analysis |
+| `GET` | `/api/v1/incidents/active/graph` | Active evidence graph |
+| `POST` | `/api/v1/incidents/active/reset` | Archive/reset active incident |
+| `POST` | `/api/v1/incidents/analyze` | Analyze uploaded files without archiving |
+| `POST` | `/api/v1/evidence/upload` | Persist evidence to active or selected historical incident |
+| `GET` | `/api/v1/incidents` | List persisted incidents |
+| `GET` | `/api/v1/incidents/{incident_id}` | Historical incident detail and analysis |
+| `GET` | `/api/v1/incidents/{incident_id}/graph` | Historical evidence graph |
+| `POST` | `http://localhost:9000/simulate-incident` | Send seven demo webhook events |
+
+## Evidence formats and limitations
+
+TXT and LOG files are read as timestamped lines; CSV supports common timestamp, source, and event headers; JSON accepts event objects, arrays, and nested event lists; PDF extraction supports text PDFs. **Scanned PDFs require OCR and are rejected clearly; OCR is not implemented.** The optional model may be unavailable, slow, or reject invalid output; deterministic analysis remains available. Semantic matching is a lightweight, deterministic domain vocabulary and does not provide general-purpose language understanding. SQLite is intended for local or single-node use.
+
+## Verification
+
+```powershell
+.venv\Scripts\python.exe -m pytest backend\tests -q
+npm.cmd run build --prefix frontend
 ```

@@ -1,0 +1,7 @@
+{
+  "incident": "payment-api-2026-09-25",
+  "events": [
+    {"timestamp": "2026-09-25T10:08:00", "source": "on-call", "event": "Database failure suspected; query and error logs were not captured", "confidence": "unverified"},
+    {"timestamp": "2026-09-25T10:12:00", "source": "database-monitor", "event": "Database CPU and connection metrics returned to normal", "note": "Does not establish the initiating cause"}
+  ]
+}

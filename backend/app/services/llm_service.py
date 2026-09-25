@@ -22,6 +22,9 @@ investigation_recommendations.
 Use only supplied evidence IDs. Never invent events, IDs, timestamps, causes, or
 certainty. Preserve uncertainty and the deterministic root-cause status.
 Claims have description, evidence_ids, and optional confidence from 0 to 1.
+incident_summary must describe observations and their order only; do not use
+causal language there. Put tentative causal ideas only in probable_causes and
+label them as unconfirmed. Never imply the root cause is confirmed.
 Do not return markdown, explanations, or reasoning."""
 
 

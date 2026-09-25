@@ -1,0 +1,5 @@
+timestamp,source,event,error_rate,connections_available
+2026-09-25 10:02:00,payment-api,Error rate increased,8.4%,unknown
+2026-09-25 10:03:00,database,Connection pool exhausted,unknown,0
+2026-09-25 10:12:00,database,Metrics returned to normal,0.4%,24
+2026-09-25 10:15:00,payment-api,Error rate decreased,0.6%,unknown
