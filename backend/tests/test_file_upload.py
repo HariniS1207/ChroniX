@@ -76,3 +76,35 @@ def test_historical_upload_targets_requested_incident():
     assert response.json()["incident_id"] == incident_id
     assert client.get(f"/api/v1/incidents/{incident_id}").json()["evidence_count"] == 2
     assert client.get("/api/v1/incidents/active").json()["count"] == 0
+
+
+def test_malformed_and_empty_pdf_rejected():
+    # Corrupted binary PDF with null bytes
+    corrupt_res = upload("corrupt.pdf", b"%PDF-1.4 \x00\x01\x02 garbage data", "application/pdf")
+    assert corrupt_res.status_code == 400
+    assert "PDF" in corrupt_res.json()["detail"]
+
+
+
+def test_upload_immediately_updates_deterministic_analysis():
+    response = upload("events.log", b"2026-09-25 10:02:13 ERROR Payment API timeout")
+    assert response.status_code == 200
+    intel = client.get("/api/v1/incidents/active/intelligence").json()
+    assert intel["status"] == "ready"
+    assert len(intel["analysis"]["timeline"]) == 1
+    assert intel["analysis"]["root_cause_status"] == "NOT CONFIRMED"
+
+
+def test_restart_recovery_preserves_uploaded_evidence():
+    upload("restart_test.log", b"2026-09-25 10:05:00 Service crashed\n2026-09-25 10:06:00 Service restarted")
+    incident_id = active_incident.incident_id
+    assert incident_id is not None
+
+    # Simulate restart by instantiating a new ActiveIncidentStore
+    from app.services.active_incident import ActiveIncidentStore
+    recovered_store = ActiveIncidentStore()
+    assert recovered_store.incident_id == incident_id
+    assert len(recovered_store.snapshot()) == 2
+    analysis = recovered_store.latest_analysis()
+    assert analysis is not None
+    assert len(analysis.timeline) == 2

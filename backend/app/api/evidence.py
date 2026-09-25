@@ -9,7 +9,16 @@ from app.services.active_incident import active_incident
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["evidence"])
 SUPPORTED_EXTENSIONS = {".txt", ".log", ".csv", ".json", ".pdf"}
-MIME_TYPES = {"text/plain", "text/csv", "application/csv", "application/json", "application/pdf", "application/octet-stream"}
+MIME_TYPES = {
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "text/x-log",
+    "application/vnd.ms-excel",
+    "application/json",
+    "application/pdf",
+    "application/octet-stream",
+}
 
 
 def _max_upload_bytes() -> int:

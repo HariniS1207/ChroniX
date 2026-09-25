@@ -72,12 +72,14 @@ def extract_csv(data: bytes, source: str) -> list[Evidence]:
         values = {str(k).lower().strip(): (v or "").strip() for k, v in row.items()}
         stamp = next((values[k] for k in ("timestamp", "time", "datetime", "date") if values.get(k)), None)
         message = next((values[k] for k in ("event", "message", "description", "log", "text") if values.get(k)), None)
+        source_header = next((values[k] for k in ("source", "source_name", "service", "system") if values.get(k)), None)
+        row_source = source_header or source
         message = message or " | ".join(v for v in values.values() if v)
         if message:
             evidence = ", ".join(f"{key}: {value}" for key, value in values.items() if value)
             metadata = {"format": "csv"}
             metadata.update({key: value for key, value in values.items() if key not in {"timestamp", "time", "datetime", "date", "event", "message", "description", "log", "text"} and value})
-            events.append(Evidence(source_type="file", source_name=source, source_id=source, timestamp=parse_timestamp(stamp) or timestamp_from_text(message), event=message, raw_evidence=evidence, metadata=metadata))
+            events.append(Evidence(source_type="file", source_name=row_source, source_id=source, timestamp=parse_timestamp(stamp) or timestamp_from_text(message), event=message, raw_evidence=evidence, metadata=metadata))
     return events
 
 
@@ -87,15 +89,17 @@ def extract_lines(data: bytes, source: str) -> list[Evidence]:
 
 
 def extract_pdf(data: bytes, source: str) -> list[Evidence]:
+    text = ""
     try:
         reader = PdfReader(io.BytesIO(data))
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
     except Exception as exc:
-        # Keep text-bearing uploads useful even when a PDF is malformed or parser-incompatible.
-        fallback = data.decode("utf-8", errors="replace")
-        if not fallback.strip():
+        if b"\x00" in data or not data.strip():
             raise ValueError(f"PDF could not be read: {exc}") from exc
-        text = fallback
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"PDF could not be read: {exc}") from exc
     if not text.strip():
         raise ValueError("PDF contains no extractable text; OCR is not enabled")
     return [Evidence(source_type="file", source_name=source, source_id=source, timestamp=timestamp_from_text(raw_statement), event=statement, raw_evidence=raw_statement, metadata={"format": "pdf"}) for raw_statement in _pdf_raw_statements(text) for statement in [_clean_statement(raw_statement)] if statement and len(statement.split()) >= 3 and not statement.endswith((":", ";")) and "..." not in statement]
