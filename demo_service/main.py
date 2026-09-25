@@ -2,10 +2,30 @@ import os
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="ChroniX Demo Payment Service")
 WEBHOOK_URL = os.getenv("CHRONIX_WEBHOOK_URL", "http://127.0.0.1:8001/api/v1/webhooks/events")
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CHRONIX_FRONTEND_ORIGINS",
+        ",".join(
+            f"http://{host}:{port}"
+            for port in range(5173, 5178)
+            for host in ("localhost", "127.0.0.1")
+        ),
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=FRONTEND_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 
 class PaymentRequest(BaseModel):

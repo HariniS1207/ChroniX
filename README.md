@@ -44,6 +44,7 @@ Create `backend/.env` if you want to configure Ollama; the backend loads that fi
 | `OLLAMA_TIMEOUT_SECONDS` | `90` | Enrichment request timeout |
 | `CHRONIX_MAX_UPLOAD_MB` | `10` | Maximum upload size |
 | `CHRONIX_WEBHOOK_URL` | `http://127.0.0.1:8001/api/v1/webhooks/events` | Demo service target |
+| `CHRONIX_FRONTEND_ORIGINS` | Local Vite on ports 5173–5177 | Comma-separated browser origins allowed by the backend and demo service |
 | `VITE_API_URL` | `http://localhost:8001` | Frontend API base URL |
 | `VITE_DEMO_URL` | `http://localhost:9000` | Demo service base URL |
 

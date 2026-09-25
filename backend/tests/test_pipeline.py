@@ -21,6 +21,19 @@ def test_health_endpoint():
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_backend_allows_vite_fallback_origin():
+    response = client.options(
+        "/api/v1/incidents/analyze-active",
+        headers={
+            "Origin": "http://localhost:5177",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5177"
+
+
 def test_csv_extraction():
     events = extract_csv(b"timestamp,event\n2026-09-25T10:02:00,API errors increased\n", "monitoring.csv")
     assert events[0].event == "API errors increased"
