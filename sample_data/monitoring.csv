@@ -1,0 +1,5 @@
+timestamp,event,message
+2026-09-25T10:02:00,API error rate increased,API error rate increased to 38 percent
+2026-09-25T10:05:00,Payment requests started failing,Payment API returned elevated 5xx responses
+2026-09-25T10:12:00,Database CPU and connection metrics returned to normal,Database metrics returned to normal after intervention
+2026-09-25T10:15:00,API error rate decreased,API error rate decreased to baseline

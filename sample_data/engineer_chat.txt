@@ -1,0 +1,3 @@
+[2026-09-25 10:08] Priya: Database failure suspected; DB appears to be failing under payment load.
+[2026-09-25 10:11] Sam: I do not see a confirmed database error yet. Query logs are needed.
+[2026-09-25 10:16] Priya: Payment service restart completed. Watching recovery.
