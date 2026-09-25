@@ -33,7 +33,7 @@ pip install -r demo_service\requirements.txt
 npm install --prefix frontend
 ```
 
-Copy `.env.example` to `backend/.env` if you want to configure Ollama. The backend loads that file automatically. Configuration can also be set as environment variables:
+Create `backend/.env` if you want to configure Ollama; the backend loads that file automatically. Configuration can also be set as environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
