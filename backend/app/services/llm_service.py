@@ -9,7 +9,7 @@ from time import perf_counter
 import httpx
 from pydantic import ValidationError
 
-from app.models.incident import IncidentAnalysis
+from app.models.incident import IncidentAnalysis, Relationship
 from app.models.intelligence import EnrichmentClaim, LLMEnrichment
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,27 @@ def _references_are_valid(enrichment: LLMEnrichment, evidence_ids: set[str]) -> 
     return all(reference in evidence_ids for claim in _claim_references(enrichment) for reference in claim.evidence_ids)
 
 
+def _integrate_inferred_relationships(analysis: IncidentAnalysis, enrichment: LLMEnrichment) -> IncidentAnalysis:
+    existing_relationships = list(analysis.relationships)
+    evidence_ids = {event.source_id for event in analysis.timeline}
+    for claim in enrichment.causal_relationships:
+        if len(claim.evidence_ids) >= 2:
+            src = claim.evidence_ids[0]
+            tgt = claim.evidence_ids[1]
+            if src in evidence_ids and tgt in evidence_ids and src != tgt:
+                existing_relationships.append(
+                    Relationship(
+                        source_evidence_id=src,
+                        target_evidence_id=tgt,
+                        relationship_type="CAUSED_BY",
+                        confidence=claim.confidence if claim.confidence is not None else 0.65,
+                        basis=f"Inferred causal hypothesis: {claim.description}",
+                        status="inferred",
+                    )
+                )
+    return analysis.model_copy(update={"relationships": existing_relationships})
+
+
 def _accept_response(analysis: IncidentAnalysis, response: httpx.Response, status: str) -> IncidentAnalysis:
     try:
         generated = _json_content(response.json()["choices"][0]["message"]["content"])
@@ -88,9 +109,11 @@ def _accept_response(analysis: IncidentAnalysis, response: httpx.Response, statu
         evidence_ids = {event.source_id for event in analysis.timeline}
         if not _references_are_valid(enrichment, evidence_ids):
             return _status(analysis, "invalid_response")
-        return _status(analysis, status, enrichment)
+        updated_analysis = _integrate_inferred_relationships(analysis, enrichment)
+        return _status(updated_analysis, status, enrichment)
     except (json.JSONDecodeError, KeyError, TypeError, ValidationError, ValueError, IndexError):
         return _status(analysis, "invalid_response")
+
 
 
 def _ollama_response_content(response: httpx.Response) -> str:
@@ -142,9 +165,11 @@ def enrich_with_llm(analysis: IncidentAnalysis) -> IncidentAnalysis:
             evidence_ids = {event.source_id for event in analysis.timeline}
             if not _references_are_valid(enrichment, evidence_ids):
                 return _status(analysis, "invalid_response")
-            return _status(analysis, "local", enrichment)
+            updated_analysis = _integrate_inferred_relationships(analysis, enrichment)
+            return _status(updated_analysis, "local", enrichment)
         except (json.JSONDecodeError, KeyError, TypeError, ValidationError, ValueError, IndexError):
             return _status(analysis, "invalid_response")
+
 
     if provider != "openai":
         return _status(analysis, "unavailable")

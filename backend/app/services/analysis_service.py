@@ -2,7 +2,7 @@ import re
 from difflib import SequenceMatcher
 from datetime import datetime
 
-from app.models.incident import Evidence, Event, IncidentAnalysis
+from app.models.incident import Evidence, Event, IncidentAnalysis, Relationship
 
 INFERENCE_WORDS = re.compile(r"\b(suspect|suspected|seems? to be|may have|might|possibly|believe|appears|could be|likely)\b", re.I)
 CONFLICT_WORDS = re.compile(r"\b(normal|healthy|no issue|not affected|unaffected)\b", re.I)
@@ -105,6 +105,119 @@ def _conflicts(events: list[Event]) -> list[str]:
     return relationships
 
 
+def build_deterministic_relationships(events: list[Event]) -> list[Relationship]:
+    relationships: list[Relationship] = []
+    seen_pairs: set[tuple[str, str, str]] = set()
+
+    def add_rel(source_id: str, target_id: str, rel_type: str, confidence: float, basis: str, status: str = "deterministic"):
+        if not source_id or not target_id or source_id == target_id:
+            return
+        pair = (source_id, target_id, rel_type)
+        if pair not in seen_pairs:
+            seen_pairs.add(pair)
+            relationships.append(
+                Relationship(
+                    source_evidence_id=source_id,
+                    target_evidence_id=target_id,
+                    relationship_type=rel_type,
+                    confidence=round(confidence, 2),
+                    basis=basis,
+                    status=status,
+                )
+            )
+
+    # 1. Temporal sequence (PRECEDED)
+    dated_events = [e for e in events if e.timestamp is not None]
+    for i in range(len(dated_events) - 1):
+        e1, e2 = dated_events[i], dated_events[i + 1]
+        t1 = e1.timestamp.strftime("%H:%M:%S") if e1.timestamp else ""
+        t2 = e2.timestamp.strftime("%H:%M:%S") if e2.timestamp else ""
+        add_rel(
+            e1.source_id,
+            e2.source_id,
+            "PRECEDED",
+            1.0,
+            f"Chronological sequence: '{e1.event}' at {t1} preceded '{e2.event}' at {t2}",
+        )
+
+    # 2. Correlated signals & Shared operational entities (CORRELATED_WITH)
+    for i, e1 in enumerate(events):
+        kw1 = _keywords(e1)
+        for j in range(i + 1, len(events)):
+            e2 = events[j]
+            kw2 = _keywords(e2)
+            shared = kw1 & kw2
+            important_tokens = shared & {"database", "payment", "api", "timeout", "service", "error", "connection", "restart", "metric", "pool", "deploy"}
+            if important_tokens:
+                confidence = min(0.95, 0.6 + 0.1 * len(important_tokens))
+                add_rel(
+                    e1.source_id,
+                    e2.source_id,
+                    "CORRELATED_WITH",
+                    confidence,
+                    f"Correlated operational signals: {', '.join(sorted(important_tokens))}",
+                )
+
+    # 3. Conflicts (CONFLICTS_WITH)
+    for inference in events:
+        if inference.classification != "INFERENCE":
+            continue
+        inf_words = _keywords(inference)
+        if not (inf_words & {"database", "db", "service", "payment"}):
+            continue
+        for fact in events:
+            if fact.classification != "FACT":
+                continue
+            fact_words = _keywords(fact)
+            if not (fact_words & inf_words):
+                continue
+            suggests_failure = bool(inf_words & {"fail", "error", "degrade", "suspect"})
+            reports_health = bool(fact_words & {"normal", "healthy", "return", "recovery"}) and bool(fact_words & {"database", "cpu", "metric", "connection"})
+            if suggests_failure and reports_health:
+                add_rel(
+                    inference.source_id,
+                    fact.source_id,
+                    "CONFLICTS_WITH",
+                    0.85,
+                    f"Conflicting status between '{inference.event}' and '{fact.event}'",
+                )
+
+    # 4. Explicit causal/contributing remediation (CONTRIBUTED_TO / CAUSED_BY)
+    for e in events:
+        txt = e.event.lower()
+        if "restart" in txt:
+            for other in events:
+                if other.source_id != e.source_id and ("timeout" in other.event.lower() or "error" in other.event.lower()):
+                    if other.timestamp and e.timestamp and other.timestamp < e.timestamp:
+                        add_rel(
+                            e.source_id,
+                            other.source_id,
+                            "CONTRIBUTED_TO",
+                            0.75,
+                            f"Remediation action: '{e.event}' addressed prior degradation '{other.event}'",
+                        )
+
+    # 5. Semantic similarity correlation via local semantic engine
+    try:
+        from app.services.semantic_service import semantic_correlator
+
+        semantic_rels = semantic_correlator.find_semantic_correlations(events)
+        for rel in semantic_rels:
+            add_rel(
+                rel.source_evidence_id,
+                rel.target_evidence_id,
+                rel.relationship_type,
+                rel.confidence,
+                rel.basis,
+                rel.status,
+            )
+    except Exception:
+        pass
+
+    return relationships
+
+
+
 def analyze(evidence: list[Evidence], file_errors: list[str]) -> IncidentAnalysis:
     events = [Event.model_validate(item.model_dump()) for item in evidence]
     events = deduplicate(events)
@@ -125,4 +238,18 @@ def analyze(evidence: list[Evidence], file_errors: list[str]) -> IncidentAnalysi
     first = events[0].timestamp.strftime("%H:%M") if events and events[0].timestamp else "the available evidence"
     summary = f"Evidence reconstructed {len(events)} event(s), beginning at {first}. The timeline shows observable system changes and operational responses, but the available sources do not prove a single root cause."
     title = "Payment API Incident" if any("payment" in event.event.lower() for event in events) else "Reconstructed Incident"
-    return IncidentAnalysis(incident_title=title, summary=summary, root_cause_status="NOT CONFIRMED", timeline=events, facts=facts, inferences=inferences, conflicts=conflicts, unknowns=unknowns, missing_evidence=missing, file_errors=file_errors)
+    relationships = build_deterministic_relationships(events)
+    return IncidentAnalysis(
+        incident_title=title,
+        summary=summary,
+        root_cause_status="NOT CONFIRMED",
+        timeline=events,
+        facts=facts,
+        inferences=inferences,
+        conflicts=conflicts,
+        unknowns=unknowns,
+        missing_evidence=missing,
+        file_errors=file_errors,
+        relationships=relationships,
+    )
+

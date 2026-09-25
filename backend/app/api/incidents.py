@@ -62,3 +62,58 @@ def get_active_intelligence() -> dict[str, object]:
 @router.post("/analyze-active", response_model=IncidentAnalysis)
 def analyze_active_incident() -> IncidentAnalysis:
     return active_incident.refresh()
+
+
+@router.get("/active/graph")
+def get_active_graph() -> dict[str, object]:
+    analysis = active_incident.latest_analysis()
+    if not analysis:
+        return {"incident_id": active_incident.incident_id, "nodes": [], "edges": []}
+    nodes = [
+        {
+            "id": event.source_id,
+            "label": event.event,
+            "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+            "source": event.source,
+            "classification": event.classification,
+            "raw_evidence": event.raw_evidence,
+        }
+        for event in analysis.timeline
+    ]
+    edges = [
+        {
+            "id": rel.relationship_id,
+            "source": rel.source_evidence_id,
+            "target": rel.target_evidence_id,
+            "relationship_type": rel.relationship_type,
+            "confidence": rel.confidence,
+            "basis": rel.basis,
+            "status": rel.status,
+        }
+        for rel in analysis.relationships
+    ]
+    return {"incident_id": active_incident.incident_id, "nodes": nodes, "edges": edges}
+
+
+@router.get("/{incident_id}/graph")
+def get_incident_graph(incident_id: str) -> dict[str, object]:
+    detail = repository.get_incident_detail(incident_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    analysis = detail.get("analysis")
+    nodes = [
+        {
+            "id": item["evidence_id"],
+            "label": item["event"],
+            "timestamp": item.get("timestamp"),
+            "source": item["source_name"],
+            "classification": item.get("classification", "FACT"),
+            "raw_evidence": item["raw_evidence"],
+        }
+        for item in detail.get("evidence", [])
+    ]
+    edges = detail.get("relationships", [])
+    if analysis and "relationships" in analysis and not edges:
+        edges = analysis["relationships"]
+    return {"incident_id": incident_id, "nodes": nodes, "edges": edges}
+

@@ -150,6 +150,14 @@ class IncidentRepository:
         with connect() as connection:
             connection.execute("INSERT INTO analyses (incident_id, revision, deterministic_json, enrichment_json, llm_status, generated_at) VALUES (?, ?, ?, ?, ?, ?)", (incident_id, revision, json.dumps(data), json.dumps(enrichment) if enrichment is not None else None, llm_status, _now()))
             connection.execute("UPDATE incidents SET title = ?, updated_at = ?, start_time = ?, root_cause_status = ?, revision = ? WHERE incident_id = ?", (analysis.incident_title, _now(), analysis.timeline[0].timestamp.isoformat() if analysis.timeline and analysis.timeline[0].timestamp else None, analysis.root_cause_status, revision, incident_id))
+            for rel in analysis.relationships:
+                connection.execute(
+                    """INSERT OR REPLACE INTO relationships
+                    (relationship_id, incident_id, source_evidence_id, target_evidence_id, relationship_type, confidence, basis, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (rel.relationship_id, incident_id, rel.source_evidence_id, rel.target_evidence_id, rel.relationship_type, rel.confidence, rel.basis, rel.status),
+                )
+
 
     def get_latest_analysis(self, incident_id: str) -> tuple[int, IncidentAnalysis] | None:
         with connect() as connection:

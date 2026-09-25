@@ -61,6 +61,19 @@ class Event(Evidence):
         return self.raw_evidence
 
 
+import uuid
+
+
+class Relationship(BaseModel):
+    relationship_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    source_evidence_id: str
+    target_evidence_id: str
+    relationship_type: str
+    confidence: float = 1.0
+    basis: str
+    status: Literal["deterministic", "inferred"] = "deterministic"
+
+
 class IncidentAnalysis(BaseModel):
     incident_title: str
     summary: str
@@ -72,5 +85,7 @@ class IncidentAnalysis(BaseModel):
     unknowns: list[str]
     missing_evidence: list[str]
     file_errors: list[str] = Field(default_factory=list)
+    relationships: list[Relationship] = Field(default_factory=list)
     llm_status: LLMStatus = "unavailable"
     llm_enrichment: LLMEnrichment | None = None
+
