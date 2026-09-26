@@ -7,14 +7,18 @@
 
 /* Final incident workspace refinement: make the evidence hierarchy explicit. */
 .app main{max-width:1480px;padding-top:24px;padding-bottom:46px}
-.app .hero-compact{margin-bottom:24px}
-.app .hero-compact h1{max-width:920px;font-size:clamp(34px,3vw,42px)}
+
+
 .app .overview{margin-bottom:32px;align-items:center}
 .app .overview>div:first-child{min-width:0;flex:1}
 .app .overview .eyebrow{display:flex;align-items:center;gap:10px}
 .overview-state{color:var(--green);border:1px solid var(--line);padding:4px 7px;font-size:9px}
 .overview-counts{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
 .overview-counts span{border:1px solid var(--line);padding:5px 8px;color:var(--muted);font:9px 'DM Mono',monospace;text-transform:uppercase}
+.count-explanation{margin:9px 0 0!important;font-size:11px!important}
+.live-count{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.live-count>span{font:9px 'DM Mono',monospace;letter-spacing:.06em}
+.live-count b{margin:0!important;text-align:right}
 .app .root-status{min-width:240px;max-width:360px;padding:16px 18px}
 .app .root-status-not-confirmed{border-left-color:#c79b4e;background:#fbf4e7}
 .app .root-status-probable{border-left-color:#d1953e;background:#fff2df}
@@ -28,11 +32,11 @@
 .classification-legend b{color:var(--green)}
 .classification-legend b:nth-of-type(2){color:#996229}.classification-legend b:nth-of-type(3){color:#a04435}.classification-legend b:nth-of-type(4){color:#687078}
 .app .gaps{padding:24px 0;align-items:start}
-.app .workflow-strip{grid-template-columns:1fr;gap:2px;margin:16px 0 0;padding:15px 0;border-top:1px solid var(--line);border-bottom:0}
-.app .workflow-step{font-size:9px}
+
+
 .ai-disclaimer{margin:7px 0 0;color:var(--muted);font-size:11px}
 .ai-status-local,.ai-status-local_processing,.ai-status-local_pending{color:var(--green);background:#eef3e9}
-.ai-status-local_unavailable,.ai-status-local_failed{color:#805921;background:#fbf4e7}
+.ai-status-local_unavailable,.ai-status-unavailable,.ai-status-local_failed,.ai-status-failed,.ai-status-invalid_response{color:#805921;background:#fbf4e7}
 .app .event-time{display:flex;flex-direction:column;gap:4px}
 .app .event-time small,.app .event-meta small{font:8px 'DM Mono',monospace;letter-spacing:.04em;color:var(--muted)}
 .app .event-meta{align-items:center;flex-wrap:wrap}
@@ -45,14 +49,14 @@
 .app .upload-selected-files .file-row>span{min-width:0}
 .app .upload-selected-files .file-row small{display:block;margin-top:3px;color:var(--muted);font:9px 'DM Mono',monospace}
 .app .upload-hint{line-height:1.55}
-.app .empty{padding:44px 24px;background:#fbfaf6;border:1px solid var(--line);text-align:left}
-.app .empty>svg{margin-bottom:13px}
-.app .empty .eyebrow{margin-bottom:8px}
-.app .empty h2{margin:0 0 8px;font-size:22px}
+
+
+
+
 .app .empty p:not(.eyebrow){margin:0;max-width:480px}
-.empty-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
-.empty-actions button{display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--green);padding:10px 13px;background:var(--ink);color:#fff;font-size:11px;cursor:pointer}
-.empty-actions button+button{background:transparent;color:var(--green)}
+
+
+
 .app footer{font-size:9px}
 @media(max-width:1050px){.app .insight-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:800px){.app .overview{display:block}.app .root-status{max-width:none;min-width:0}.app .workflow-strip{grid-template-columns:repeat(5,minmax(0,1fr));padding-top:12px}.app .workflow-step{flex-direction:column;align-items:flex-start}.app .empty{padding:30px 20px}.app .insight-grid{grid-template-columns:1fr}.app .gaps{display:block}.app .gaps ul{margin-top:16px}}
+@media(max-width:800px){.app .overview{display:block}.app .root-status{max-width:none;min-width:0}.app .insight-grid{grid-template-columns:1fr}.app .gaps{display:block}.app .gaps ul{margin-top:16px}}

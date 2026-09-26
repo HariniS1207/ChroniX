@@ -231,13 +231,15 @@ def test_active_incident_retrieval_and_analysis_use_webhook_evidence():
     analysis = client.post("/api/v1/incidents/analyze-active")
     assert analysis.status_code == 200
     assert any(item["source_name"] == "Payment API" and item["event"] == "Payment API error rate increased" for item in analysis.json()["timeline"])
+    intelligence = client.get("/api/v1/incidents/active/intelligence").json()
+    assert intelligence["incident_id"]
 
 
 def test_active_incident_reset_clears_in_memory_state():
     response = client.post("/api/v1/incidents/active/reset")
     assert response.json() == {"status": "reset", "count": 0}
     assert client.get("/api/v1/incidents/active").json() == {"events": [], "count": 0}
-    assert client.get("/api/v1/incidents/active/intelligence").json() == {"status": "not_ready", "analysis": None}
+    assert client.get("/api/v1/incidents/active/intelligence").json() == {"status": "not_ready", "analysis": None, "incident_id": None}
 
 
 def test_multiple_webhook_events_are_kept_as_separate_evidence():

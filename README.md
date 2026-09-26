@@ -46,7 +46,7 @@ Create `backend/.env` if you want to configure Ollama; the backend loads that fi
 | `CHRONIX_WEBHOOK_URL` | `http://127.0.0.1:8001/api/v1/webhooks/events` | Demo service target |
 | `CHRONIX_FRONTEND_ORIGINS` | Local Vite on ports 5173–5177 | Comma-separated browser origins allowed by the backend and demo service |
 | `VITE_API_URL` | `http://localhost:8001` | Frontend API base URL |
-| `VITE_DEMO_URL` | `http://localhost:9000` | Demo service base URL |
+| `VITE_DEMO_URL` | `http://localhost:9001` | Demo service base URL |
 
 ## Run the application
 
@@ -63,8 +63,8 @@ npm run dev --prefix frontend
 ```
 
 ```powershell
-# Demo service on port 9000
-uvicorn main:app --app-dir demo_service --reload --port 9000
+# Demo service on port 9001
+uvicorn main:app --app-dir demo_service --reload --port 9001
 ```
 
 Open the Vite URL (usually `http://localhost:5173`). To enable local enrichment, install and start [Ollama](https://ollama.com/), then fetch the model once:
@@ -83,7 +83,7 @@ The system remains usable if Ollama is not installed or running. It reports loca
 4. Upload a TXT, LOG, CSV, JSON, or text PDF file to add evidence; open **Incident History** to review archived incidents.
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:9000/simulate-incident
+Invoke-RestMethod -Method Post http://localhost:9001/simulate-incident
 ```
 
 The seeded incident includes an API error increase, a database timeout, a deployment, a suspected failure, a restart, and recovery signals. These observations do not prove the database caused the incident. The analysis should keep root cause **NOT CONFIRMED** and show gaps such as database query/error logs, connection pool metrics, and deployment impact analysis. Replaying the same simulation is safe because event source IDs are deduplicated.
@@ -106,7 +106,7 @@ Backend base URL: `http://localhost:8001`.
 | `GET` | `/api/v1/incidents` | List persisted incidents |
 | `GET` | `/api/v1/incidents/{incident_id}` | Historical incident detail and analysis |
 | `GET` | `/api/v1/incidents/{incident_id}/graph` | Historical evidence graph |
-| `POST` | `http://localhost:9000/simulate-incident` | Send seven demo webhook events |
+| `POST` | `http://localhost:9001/simulate-incident` | Send seven demo webhook events |
 
 ## Evidence formats and limitations
 

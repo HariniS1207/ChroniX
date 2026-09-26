@@ -19,16 +19,21 @@ Return only one concise JSON object with exactly these fields:
 incident_summary, probable_causes, contributing_factors, causal_relationships,
 evidence_interpretations, uncertainty, missing_evidence,
 investigation_recommendations.
-Use only supplied evidence IDs. Never invent events, IDs, timestamps, causes, or
-certainty. Preserve uncertainty and the deterministic root-cause status.
+Use only evidence_id values listed in the supplied evidence array. Never invent
+events, IDs, timestamps, causes, or certainty. For missing_evidence claims, set
+evidence_ids to [] unless an existing supplied evidence item directly supports
+the gap; never use placeholders such as "missing_evidence" as IDs. Preserve
+uncertainty and the deterministic root-cause status.
 Claims have description, evidence_ids, and optional confidence from 0 to 1.
 incident_summary must describe observations and their order only; do not use
 causal language there. Put tentative causal ideas only in probable_causes and
 label them as unconfirmed when the deterministic assessment is NOT CONFIRMED or
-PROBABLE. When status is NOT CONFIRMED, describe candidate explanations as
-possible contributors supported by correlation; never state that one event
-caused another, and explicitly say direct causal evidence is missing where
-relevant. When status is PROBABLE, state that the explanation is probable but
+PROBABLE. When status is NOT CONFIRMED, label every candidate explanation as a
+possible, unconfirmed contributor supported only by correlation; never state
+that one event caused another, and explicitly say direct causal evidence is
+missing where relevant. For causal_relationships, make clear the relationship
+is only a hypothesis and not established. When status is PROBABLE, state that
+the explanation is probable but
 not directly confirmed. Use causal wording only when status is CONFIRMED and
 the supplied evidence supports that wording. Never set or override the
 deterministic root-cause status. Do not attach numeric confidence percentages
