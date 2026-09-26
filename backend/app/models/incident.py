@@ -77,7 +77,10 @@ class Relationship(BaseModel):
 class IncidentAnalysis(BaseModel):
     incident_title: str
     summary: str
-    root_cause_status: str
+    root_cause_status: Literal["NOT CONFIRMED", "PROBABLE", "CONFIRMED"] = "NOT CONFIRMED"
+    root_cause_evidence_ids: list[str] = Field(default_factory=list)
+    root_cause_confidence: float | None = Field(default=None, ge=0, le=1)
+    root_cause_basis: str = "Available evidence is insufficient to establish causality."
     timeline: list[Event]
     facts: list[str]
     inferences: list[str]

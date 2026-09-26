@@ -7,6 +7,7 @@ from app.models.incident import Evidence, Event, IncidentAnalysis, Relationship
 INFERENCE_WORDS = re.compile(r"\b(suspect|suspected|seems? to be|may have|might|possibly|believe|appears|could be|likely)\b", re.I)
 CONFLICT_WORDS = re.compile(r"\b(normal|healthy|no issue|not affected|unaffected)\b", re.I)
 CAUSE_WORDS = re.compile(r"\b(cause|caused by|root cause|failure)\b", re.I)
+CAUSAL_ASSERTION_WORDS = re.compile(r"\b(?:caused|triggered|led to|resulted in|because of|due to)\b", re.I)
 STOP_WORDS = {"about", "after", "appears", "around", "been", "from", "have", "into", "that", "the", "this", "with", "were"}
 OPPOSITE_WORDS = (({"increase"}, {"decrease"}), ({"fail"}, {"normal"}), ({"degrade"}, {"healthy"}), ({"error"}, {"normal"}))
 
@@ -31,6 +32,12 @@ def _has_opposite_polarity(left: set[str], right: set[str]) -> bool:
 
 
 def _duplicate(left: Event, right: Event) -> bool:
+    # Preserve a causal assertion as a separate, traceable evidence item; it
+    # must not be merged into a similar observation such as a pool metric.
+    left_asserts_cause = bool(CAUSAL_ASSERTION_WORDS.search(f"{left.event} {left.raw_evidence}"))
+    right_asserts_cause = bool(CAUSAL_ASSERTION_WORDS.search(f"{right.event} {right.raw_evidence}"))
+    if left_asserts_cause != right_asserts_cause:
+        return False
     left_words = _keywords(left)
     right_words = _keywords(right)
     if _has_opposite_polarity(left_words, right_words):
@@ -217,6 +224,138 @@ def build_deterministic_relationships(events: list[Event]) -> list[Relationship]
     return relationships
 
 
+def _evidence_text(event: Event) -> str:
+    return f"{event.event}\n{event.raw_evidence}".lower()
+
+
+def _is_deployment(event: Event) -> bool:
+    return bool(re.search(r"\b(?:deploy(?:ment|ed|ing)?|rollout)\b", _evidence_text(event)))
+
+
+def _is_pool_exhaustion(event: Event) -> bool:
+    text = _evidence_text(event)
+    if re.search(r"\b(?:not|never|no|without)\b.{0,30}\b(?:exhaust\w*|saturat\w*)\b", text):
+        return False
+    if "pool" in text and re.search(r"\b(?:normal|healthy|within limits|not exhausted|no exhaustion)\b", text):
+        return False
+    return bool(
+        re.search(r"\b(?:connection\s+)?pool\b.{0,45}\b(?:exhaust(?:ed|ion)?|saturat(?:ed|ion)?|at capacity|full)\b", text)
+        or re.search(r"\b(?:exhaust(?:ed|ion)?|saturat(?:ed|ion)?)\b.{0,45}\b(?:connection\s+)?pool\b", text)
+    )
+
+
+def _is_database_error(event: Event) -> bool:
+    text = _evidence_text(event)
+    if re.search(r"\b(?:no|not|never|without)\b.{0,30}\b(?:error|timeout|fail\w*|unavailable)\b", text):
+        return False
+    return bool(re.search(r"\b(?:database|db)\b", text) and re.search(r"\b(?:error|timeout|fail(?:ure|ed)?|unavailable)\b", text))
+
+
+def _is_api_error(event: Event) -> bool:
+    text = _evidence_text(event)
+    if re.search(r"\b(?:no|not|never|without)\b.{0,30}\b(?:error|failure|fail\w*|degrad\w*)\b", text):
+        return False
+    has_api = bool(re.search(r"\b(?:api|payment|http\s*5\d\d)\b", text))
+    has_error = bool(re.search(r"\b(?:error|errors|failure|failed|degrad\w*|5\d\d)\b", text))
+    return has_api and has_error
+
+
+def _in_time_order(events: list[Event]) -> bool:
+    return all(
+        left.timestamp is not None and right.timestamp is not None and left.timestamp < right.timestamp
+        for left, right in zip(events, events[1:])
+    )
+
+
+def _explicit_causal_statement(event: Event) -> bool:
+    text = _evidence_text(event)
+    direct_cause = re.search(r"\b(?:caused|triggered|led to|resulted in|introduced)\b", text)
+    mentions_deployment = _is_deployment(event)
+    mentions_pool = _is_pool_exhaustion(event)
+    tentative = INFERENCE_WORDS.search(text)
+    return bool(direct_cause and mentions_deployment and mentions_pool and not tentative and event.classification == "FACT")
+
+
+def _contradicts_causal_chain(event: Event) -> bool:
+    text = _evidence_text(event)
+    denies_impact = re.search(
+        r"\b(?:did not|didn't|does not|doesn't|never|no evidence (?:that|of)|unaffected by)\b.{0,100}"
+        r"\b(?:deploy\w*|rollout|cause\w*|impact\w*|affect\w*|exhaust\w*|saturat\w*)\b",
+        text,
+    )
+    normal_pool = _is_pool_exhaustion(event) or "pool" in text
+    normal_pool = normal_pool and bool(re.search(r"\b(?:normal|healthy|within limits|not exhausted|no exhaustion)\b", text))
+    healthy_database = bool(re.search(r"\b(?:database|db)\b", text)) and bool(
+        re.search(r"\b(?:normal|healthy|within limits|no errors|no failure)\b", text)
+    )
+    return bool(denies_impact or normal_pool or healthy_database)
+
+
+def _root_cause_assessment(events: list[Event]) -> dict[str, object]:
+    facts = [event for event in events if event.classification == "FACT"]
+    deployments = [event for event in facts if _is_deployment(event)]
+    pool_events = [event for event in facts if _is_pool_exhaustion(event)]
+    database_errors = [event for event in facts if _is_database_error(event)]
+    api_errors = [event for event in facts if _is_api_error(event)]
+
+    # A candidate requires four separate, dated observations in causal order.
+    # Ordering supports a hypothesis, but never confirms causation by itself.
+    probable_candidates: list[list[Event]] = []
+    confirmed_candidates: list[list[Event]] = []
+    for deployment in deployments:
+        for pool_event in pool_events:
+            for database_error in database_errors:
+                for api_error in api_errors:
+                    chain = [deployment, pool_event, database_error, api_error]
+                    if len({item.source_id for item in chain}) < 4 or not _in_time_order(chain):
+                        continue
+
+                    contradicted = any(
+                        _contradicts_causal_chain(event)
+                        and (event.timestamp is None or api_error.timestamp is None or event.timestamp <= api_error.timestamp)
+                        for event in facts
+                        if event.source_id not in {item.source_id for item in chain}
+                    )
+                    if contradicted:
+                        continue
+
+                    direct_claims = [
+                        event for event in facts
+                        if event.source_id not in {item.source_id for item in chain}
+                        and _explicit_causal_statement(event)
+                    ]
+                    if direct_claims:
+                        claim = direct_claims[0]
+                        confirmed_candidates.append([claim, *chain])
+                    else:
+                        probable_candidates.append(chain)
+
+    if confirmed_candidates:
+        supporting = confirmed_candidates[0]
+        ids = list(dict.fromkeys(item.source_id for item in supporting))
+        return {
+            "status": "CONFIRMED",
+            "evidence_ids": ids,
+            "confidence": len(ids) / 5,
+            "basis": "Evidence coverage: 5/5 checks (100%). An explicit deployment-to-pool causal statement is corroborated by separate deployment, pool, database-error, and API-error evidence. Coverage is checklist-based, not a statistical probability.",
+        }
+    if probable_candidates:
+        ids = list(dict.fromkeys(item.source_id for item in probable_candidates[0]))
+        return {
+            "status": "PROBABLE",
+            "evidence_ids": ids,
+            "confidence": len(ids) / 5,
+            "basis": "Evidence coverage: 4/5 checks (80%). Deployment, pool exhaustion, database errors, and API errors appear in independent chronological evidence. Direct deployment-impact evidence is missing. Coverage is checklist-based, not a statistical probability.",
+        }
+
+    return {
+        "status": "NOT CONFIRMED",
+        "evidence_ids": [],
+        "confidence": None,
+        "basis": "Available evidence is insufficient or contradictory to establish a causal chain.",
+    }
+
+
 
 def analyze(evidence: list[Evidence], file_errors: list[str]) -> IncidentAnalysis:
     events = [Event.model_validate(item.model_dump()) for item in evidence]
@@ -232,17 +371,36 @@ def analyze(evidence: list[Evidence], file_errors: list[str]) -> IncidentAnalysi
     facts = [event.event for event in events if event.classification == "FACT"]
     inferences = [event.event for event in events if event.classification == "INFERENCE"]
     conflicts = _conflicts(events)
-    unknowns = ["Confirmed root cause cannot be established from the uploaded evidence."]
+    assessment = _root_cause_assessment(events)
+    unknowns = []
+    if assessment["status"] == "NOT CONFIRMED":
+        unknowns.append("Causality cannot be established from the available evidence.")
+    elif assessment["status"] == "PROBABLE":
+        unknowns.append("Direct evidence of deployment impact is still missing.")
     database_issue = any("database" in event.event.lower() or "db " in event.event.lower() for event in events)
-    missing = ["Database query/error logs", "Connection pool metrics", "Deployment impact analysis"] if database_issue else ["A verified root-cause signal or recovery validation data."]
+    if assessment["status"] == "CONFIRMED":
+        missing = []
+    elif assessment["status"] == "PROBABLE":
+        missing = ["Direct deployment impact/error record"]
+    else:
+        missing = ["Database query/error logs", "Connection pool metrics", "Deployment impact analysis"] if database_issue else ["A verified root-cause signal or recovery validation data."]
     first = events[0].timestamp.strftime("%H:%M") if events and events[0].timestamp else "the available evidence"
-    summary = f"Evidence reconstructed {len(events)} event(s), beginning at {first}. The timeline shows observable system changes and operational responses, but the available sources do not prove a single root cause."
+    summary = f"Evidence reconstructed {len(events)} event(s), beginning at {first}. "
+    if assessment["status"] == "CONFIRMED":
+        summary += "An explicit causal statement is corroborated by independent deployment, pool, database-error, and API-error evidence."
+    elif assessment["status"] == "PROBABLE":
+        summary += "The ordered deployment, pool-exhaustion, database-error, and API-error evidence supports a probable database-related cause, but direct deployment-impact evidence is missing."
+    else:
+        summary += "The timeline shows observable system changes and operational responses, but the available sources do not prove a single root cause."
     title = "Payment API Incident" if any("payment" in event.event.lower() for event in events) else "Reconstructed Incident"
     relationships = build_deterministic_relationships(events)
     return IncidentAnalysis(
         incident_title=title,
         summary=summary,
-        root_cause_status="NOT CONFIRMED",
+        root_cause_status=assessment["status"],
+        root_cause_evidence_ids=assessment["evidence_ids"],
+        root_cause_confidence=assessment["confidence"],
+        root_cause_basis=assessment["basis"],
         timeline=events,
         facts=facts,
         inferences=inferences,

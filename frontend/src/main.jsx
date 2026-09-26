@@ -12,25 +12,29 @@ function Badge({ value }) {
   return <span className={`badge badge-${value.toLowerCase()}`}><span className="badge-mark">{value === 'FACT' ? 'F' : value === 'INFERENCE' ? 'I' : value === 'CONFLICT' ? 'C' : '?'}</span>{value}</span>
 }
 
-function EmptyState() {
-  return <div className="empty"><Search size={30} /><h2>Start with the evidence</h2><p>Upload the files that describe one incident. ChroniX will keep each conclusion attached to its source.</p></div>
+function EmptyState({ onUpload, onSimulate }) {
+  return <div className="empty"><Search size={30} /><p className="eyebrow">Start with the evidence</p><h2>Build an incident record</h2><p>Upload the files that describe one incident. ChroniX will reconstruct the timeline and keep conclusions attached to their sources.</p><div className="empty-actions"><button onClick={onUpload}>Upload evidence <ArrowUpRight size={15} /></button><button onClick={onSimulate}>Simulate demo incident</button></div></div>
+}
+
+function WorkflowStrip() {
+  return null
 }
 
 function ClaimList({ title, claims }) {
   if (!claims?.length) return null
-  return <div className="ai-claims"><strong>{title}</strong><ul>{claims.map((claim, index) => <li key={index}>{claim.description}{claim.confidence !== null && claim.confidence !== undefined ? ` (${Math.round(claim.confidence * 100)}% confidence)` : ''}<small>Evidence: {claim.evidence_ids.join(', ') || 'none referenced'}</small></li>)}</ul></div>
+  return <div className="ai-claims"><strong>{title}</strong><ul>{claims.map((claim, index) => <li key={index}>{claim.description}<small>Evidence: {claim.evidence_ids?.join(', ') || 'not explicitly referenced'}</small></li>)}</ul></div>
 }
 
 function AIEnrichment({ analysis }) {
   const enrichment = analysis.llm_enrichment
   const labels = { local_pending: 'LOCAL PENDING', local_processing: 'LOCAL PROCESSING', local: 'LOCAL', local_unavailable: 'LOCAL UNAVAILABLE', local_failed: 'LOCAL FAILED', unavailable: 'UNAVAILABLE', failed: 'FAILED', invalid_response: 'INVALID RESPONSE', used: 'USED' }
   const messages = { local_pending: 'Evidence is ready. Local enrichment will run after the current event burst.', local_processing: 'Local enrichment is processing the complete incident evidence.', local_unavailable: 'Local intelligence unavailable. Deterministic analysis is active.', local_failed: 'Local model request failed. Deterministic analysis is active.', unavailable: 'LLM enrichment unavailable. Deterministic analysis is active.', failed: 'LLM request failed. Deterministic analysis is active.', invalid_response: 'Local model response was rejected. Deterministic analysis is active.' }
-  return <section className="ai-panel"><div className="section-heading"><div><p className="eyebrow">Reasoning layer</p><h2>AI analysis</h2></div><span className={`ai-status ai-status-${analysis.llm_status}`}>LLM: {labels[analysis.llm_status] || analysis.llm_status}</span></div>{(analysis.llm_status === 'local' || analysis.llm_status === 'used') && enrichment ? <><p className="ai-summary">{enrichment.incident_summary}</p><div className="ai-grid"><ClaimList title="Probable causes" claims={enrichment.probable_causes} /><ClaimList title="Contributing factors" claims={enrichment.contributing_factors} /><ClaimList title="Uncertainty" claims={enrichment.uncertainty} /><ClaimList title="Recommendations" claims={enrichment.investigation_recommendations.map(description => ({ description, evidence_ids: [], confidence: null }))} /></div></> : <p className="muted">{messages[analysis.llm_status] || 'Deterministic analysis is active.'}</p>}</section>
+  return <section className="ai-panel"><div className="section-heading"><div><p className="eyebrow">Enrichment layer</p><h2>Local intelligence</h2><p className="ai-disclaimer">AI enrichment | grounded in available evidence. Deterministic analysis remains authoritative.</p></div><span className={`ai-status ai-status-${analysis.llm_status}`}>LLM: {labels[analysis.llm_status] || analysis.llm_status}</span></div>{(analysis.llm_status === 'local' || analysis.llm_status === 'used') && enrichment ? <><p className="ai-summary">{enrichment.incident_summary}</p><div className="ai-grid"><ClaimList title="Probable causes" claims={enrichment.probable_causes} /><ClaimList title="Contributing factors" claims={enrichment.contributing_factors} /><ClaimList title="Uncertainty" claims={enrichment.uncertainty} /><ClaimList title="Recommendations" claims={enrichment.investigation_recommendations.map(description => ({ description, evidence_ids: [], confidence: null }))} /></div></> : <p className="muted">{analysis.llm_status === 'local_unavailable' ? 'Local intelligence unavailable. Deterministic incident analysis remains available.' : messages[analysis.llm_status] || 'Deterministic analysis is active.'}</p>}</section>
 }
 
 function Timeline({ events }) {
   const [open, setOpen] = useState(null)
-  return <section className="timeline-section"><div className="section-heading"><div><p className="eyebrow">Reconstructed sequence</p><h2>Incident timeline</h2></div><span className="count">{events.length} events</span></div><div className="timeline">{events.map((item, index) => <article className="event" key={`${item.source_id || item.source}-${index}`}><div className="event-rail"><span className="event-dot" /></div><div className="event-time">{item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '-'}</div><div className="event-body"><div className="event-top"><h3>{item.event}</h3><Badge value={item.classification || 'UNKNOWN'} /></div><div className="event-meta"><span><FileText size={14} />{item.source || item.source_name}</span>{item.related_event_ids?.length > 0 && <span>{item.related_event_ids.length} related</span>}</div><button className="evidence-toggle" onClick={() => setOpen(open === index ? null : index)}>{open === index ? 'Hide source evidence' : 'View source evidence'}<ChevronDown size={15} className={open === index ? 'rotate' : ''} /></button>{open === index && <div className="evidence"><strong>Evidence</strong><p>{item.evidence || item.raw_evidence}</p></div>}</div></article>)}</div></section>
+  return <section className="timeline-section"><div className="section-heading"><div><p className="eyebrow">Reconstructed sequence</p><h2>Incident timeline</h2></div><span className="count">{events.length} events</span></div><div className="timeline">{events.map((item, index) => <article className="event" key={`${item.source_id || item.source}-${index}`}><div className="event-rail"><span className="event-dot" /></div><div className="event-time"><small>TIME</small>{item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '-'}</div><div className="event-body"><div className="event-top"><h3>{item.event}</h3><Badge value={item.classification || 'UNKNOWN'} /></div><div className="event-meta"><span><FileText size={14} /><small>SOURCE</small>{item.source || item.source_name || 'Unknown source'}</span>{item.related_event_ids?.length > 0 && <span><small>RELATED</small>{item.related_event_ids.length}</span>}</div><button className="evidence-toggle" onClick={() => setOpen(open === index ? null : index)}>{open === index ? 'Hide source evidence' : 'View source evidence'}<ChevronDown size={15} className={open === index ? 'rotate' : ''} /></button>{open === index && <div className="evidence"><strong>Evidence</strong><p>{item.evidence || item.raw_evidence}</p></div>}</div></article>)}</div></section>
 }
 
 function InsightColumn({ title, items, kind }) {
@@ -41,11 +45,54 @@ function EvidenceRelationships({ analysis }) {
   const events = analysis.timeline || []
   const byId = Object.fromEntries(events.map(event => [event.source_id, event]))
   const relationships = analysis.relationships || []
-  return <section className="relationships-section"><div className="section-heading"><div><p className="eyebrow">Traceable evidence graph</p><h2>Evidence relationships</h2></div><span className="count">{relationships.length} links</span></div>{relationships.length ? <div className="relationship-list">{relationships.map((rel, index) => { const source = byId[rel.source_evidence_id]; const target = byId[rel.target_evidence_id]; return <article className="relationship-row" key={rel.relationship_id || `${rel.source_evidence_id}-${rel.target_evidence_id}-${index}`}><div className="relationship-node"><Badge value={source?.classification || 'UNKNOWN'} /><span>{source?.event || rel.source_evidence_id}</span><small>{source ? `${source.source} ? ${rel.source_evidence_id}` : rel.source_evidence_id}</small></div><div className="relationship-edge"><strong>{rel.relationship_type.replaceAll('_', ' ')}</strong><span>{Math.round((rel.confidence || 0) * 100)}% confidence</span></div><div className="relationship-node"><Badge value={target?.classification || 'UNKNOWN'} /><span>{target?.event || rel.target_evidence_id}</span><small>{target ? `${target.source} ? ${rel.target_evidence_id}` : rel.target_evidence_id}</small></div><p>{rel.basis}</p></article> })}</div> : <p className="muted">No relationships are supported by the available evidence yet.</p>}</section>
+  return <section className="relationships-section"><div className="section-heading"><div><p className="eyebrow">Traceable evidence graph</p><h2>Evidence relationships</h2></div><span className="count">{relationships.length} links</span></div>{relationships.length ? <div className="relationship-list">{relationships.map((rel, index) => { const source = byId[rel.source_evidence_id]; const target = byId[rel.target_evidence_id]; return <article className="relationship-row" key={rel.relationship_id || `${rel.source_evidence_id}-${rel.target_evidence_id}-${index}`}><div className="relationship-node"><Badge value={source?.classification || 'UNKNOWN'} /><span>{source?.event || rel.source_evidence_id}</span><small>{source ? `${source.source || source.source_name || 'Unknown source'} / ${rel.source_evidence_id}` : rel.source_evidence_id}</small></div><div className="relationship-edge"><strong>{rel.relationship_type.replaceAll('_', ' ')}</strong><span>{Math.round((rel.confidence || 0) * 100)}% confidence</span></div><div className="relationship-node"><Badge value={target?.classification || 'UNKNOWN'} /><span>{target?.event || rel.target_evidence_id}</span><small>{target ? `${target.source || target.source_name || 'Unknown source'} / ${rel.target_evidence_id}` : rel.target_evidence_id}</small></div><p>{rel.basis}</p></article> })}</div> : <p className="muted">No relationships are supported by the available evidence yet.</p>}</section>
+}
+
+function RootCauseStatus({ analysis }) {
+  const status = analysis?.root_cause_status || 'NOT CONFIRMED'
+  const evidenceIds = analysis?.root_cause_evidence_ids || []
+  const confidence = analysis?.root_cause_confidence
+  const basis = analysis?.root_cause_basis || 'Available evidence is insufficient to establish causality.'
+  return <div className={`root-status root-status-${status.toLowerCase().replaceAll(' ', '-')}`}>
+    <span>Root cause</span>
+    <strong>{status}</strong>
+    <p>{basis}</p>
+    {confidence !== null && confidence !== undefined && <small>Evidence confidence: {Math.round(confidence * 100)}% checklist coverage</small>}
+    {evidenceIds.length > 0 && <small>Supporting evidence IDs: {evidenceIds.join(', ')}</small>}
+  </div>
 }
 
 function IntelligenceWorkspace({ analysis, stateLabel = 'INCIDENT' }) {
-  return <><section className="overview"><div><p className="eyebrow">Incident overview · {stateLabel}</p><h2>{analysis.incident_title}</h2><p>{analysis.summary}</p></div><div className="root-status"><span>Root cause</span><strong>{analysis.root_cause_status}</strong></div></section><Timeline events={analysis.timeline} /><EvidenceRelationships analysis={analysis} /><AIEnrichment analysis={analysis} /><section className="intelligence"><div className="section-heading"><div><p className="eyebrow">Deterministic interpretation</p><h2>Incident intelligence</h2></div></div><div className="insight-grid"><InsightColumn title="Facts" items={analysis.facts} kind="fact" /><InsightColumn title="Inferences" items={analysis.inferences} kind="inference" /><InsightColumn title="Conflicts" items={analysis.conflicts} kind="conflict" /><InsightColumn title="Unknowns" items={analysis.unknowns} kind="unknown" /></div></section><section className="gaps"><div><p className="eyebrow">Next investigation move</p><h2>Missing evidence</h2></div><ul>{analysis.missing_evidence.map((item, index) => <li key={index}>{item}<ArrowUpRight size={15} /></li>)}</ul></section></>
+  const counts = (analysis.timeline || []).reduce((acc, event) => { const key = (event.classification || 'UNKNOWN').toLowerCase(); acc[key] = (acc[key] || 0) + 1; return acc }, {})
+  return <><section className="overview"><div><p className="eyebrow">Incident overview <span className="overview-state">{stateLabel}</span></p><h2>{analysis.incident_title}</h2><p>{analysis.summary}</p><div className="overview-counts"><span>{analysis.timeline?.length || 0} evidence events</span><span>{counts.inference || 0} inferences</span><span>{counts.conflict || 0} conflicts</span></div></div><RootCauseStatus analysis={analysis} /></section><Timeline events={analysis.timeline} /><EvidenceRelationships analysis={analysis} /><section className="intelligence"><div className="section-heading"><div><p className="eyebrow">Deterministic interpretation</p><h2>Incident intelligence</h2><p className="section-caption">Observed facts remain distinct from interpretation and uncertainty.</p></div></div><div className="insight-grid"><InsightColumn title="Facts" items={analysis.facts} kind="fact" /><InsightColumn title="Inferences" items={analysis.inferences} kind="inference" /><InsightColumn title="Conflicts" items={analysis.conflicts} kind="conflict" /><InsightColumn title="Unknowns" items={analysis.unknowns} kind="unknown" /></div><p className="classification-legend"><b>FACT</b> directly observed <b>INFERENCE</b> interpretation <b>CONFLICT</b> evidence disagreement <b>UNKNOWN</b> insufficient evidence</p></section><section className="gaps"><div><p className="eyebrow">Next investigation move</p><h2>Missing evidence</h2></div><ul>{analysis.missing_evidence.map((item, index) => <li key={index}>{item}<ArrowUpRight size={15} /></li>)}</ul></section>
+<AIEnrichment analysis={analysis} />
+
+<section className="incident-report">
+  <div>
+    <p className="eyebrow">Incident report</p>
+    <h2>Download incident report</h2>
+    <p className="section-caption">
+      Export the reconstructed incident with its evidence, timeline,
+      classifications, relationships, uncertainty, and investigation gaps.
+    </p>
+  </div>
+
+  <button
+  className="report-download"
+  onClick={() => {
+    console.log("REPORT INCIDENT ID:", analysis.incident_id)
+    console.log("REPORT URL:", `${API_URL}/api/v1/incidents/${analysis.incident_id}/report`)
+
+    window.open(
+      `${API_URL}/api/v1/incidents/${analysis.incident_id}/report`,
+      '_blank'
+    )
+  }}
+>
+  Download incident report <ArrowUpRight size={15} />
+</button>
+</section>
+</>
 }
 
 function HistoryList({ incidents, onSelect }) {
@@ -54,37 +101,109 @@ function HistoryList({ incidents, onSelect }) {
 }
 
 function EvidenceUpload({ incidentId, onUploaded }) {
-  const [file, setFile] = useState(null)
+  const [files, setFiles] = useState([])
   const [targets, setTargets] = useState([])
   const [target, setTarget] = useState(incidentId || '')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
+
   useEffect(() => {
     if (incidentId) return undefined
     fetch(`${API_URL}/api/v1/incidents`).then(response => response.json()).then(setTargets).catch(() => setTargets([]))
     return undefined
   }, [incidentId])
-  const submit = async () => {
-    if (!file) return
-    setUploading(true); setStatus('Uploading evidence...'); setError('')
-    const body = new FormData(); body.append('file', file); if (target) body.append('incident_id', target)
-    try {
-      const response = await fetch(`${API_URL}/api/v1/evidence/upload`, { method: 'POST', body })
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.detail || 'Evidence upload failed.')
-      setStatus(`${file.name}: Evidence added successfully — ${result.created_count} event${result.created_count === 1 ? '' : 's'} added${result.duplicate_count ? `, ${result.duplicate_count} duplicate` : ''}.`); setFile(null); onUploaded?.()
-    } catch (uploadError) { setError(uploadError.name === 'TypeError' ? 'Could not reach the ChroniX backend. Check that it is running and try again.' : uploadError.message); setStatus('') } finally { setUploading(false) }
-  }
-  return <section className="evidence-upload"><div className="section-heading"><div><p className="eyebrow">Evidence ingestion</p><h2>Upload source file</h2></div></div><div className="upload-controls"><label className="upload-file-picker"><UploadCloud size={18} /><span>{file?.name || 'Choose an evidence file'}</span><small>TXT · LOG · CSV · JSON · PDF</small><input type="file" accept=".txt,.log,.csv,.json,.pdf" onChange={event => { setFile(event.target.files?.[0] || null); setStatus(''); setError('') }} /></label>{incidentId ? <span className="upload-target">This incident</span> : <select value={target} onChange={event => setTarget(event.target.value)}><option value="">Active incident</option>{targets.map(item => <option key={item.incident_id} value={item.incident_id}>{item.incident_title} / {item.incident_id.slice(0, 8)}</option>)}</select>}<button className="analyze-button" disabled={!file || uploading} onClick={submit}>{uploading ? 'Uploading...' : 'Upload evidence'}<ArrowUpRight size={16} /></button></div><small className="upload-hint">Up to 10 MB. PDF text extraction only; scanned PDFs need OCR.</small>{status && <p className="upload-success">{status}</p>}{error && <p className="error">{error}</p>}</section>
-}
 
+  const addFiles = incoming => {
+    const chosen = Array.from(incoming || [])
+    const accepted = chosen.filter(file => file.size <= 10 * 1024 * 1024)
+    if (accepted.length !== chosen.length) setError('Files must be 10 MB or smaller. Oversized files were not added.')
+    if (!accepted.length) return
+    setFiles(current => {
+      const seen = new Set(current.map(file => `${file.name}:${file.size}:${file.lastModified}`))
+      return [...current, ...accepted.filter(file => {
+        const key = `${file.name}:${file.size}:${file.lastModified}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })]
+    })
+    setStatus('')
+    setError('')
+  }
+
+  const submit = async () => {
+    if (!files.length || uploading) return
+    setUploading(true)
+    setStatus('Uploading evidence and updating incident analysis...')
+    setError('')
+    let createdCount = 0
+    let duplicateCount = 0
+    let incidentResult = null
+    const uploadedNames = []
+    const failedFiles = []
+    const failureMessages = []
+    const selectedTarget = incidentId || target
+
+    for (const file of files) {
+      const body = new FormData()
+      body.append('file', file)
+      if (selectedTarget) body.append('incident_id', selectedTarget)
+      try {
+        const response = await fetch(`${API_URL}/api/v1/evidence/upload`, { method: 'POST', body })
+        const result = await response.json()
+        if (!response.ok) throw new Error('Upload failed. Check the file format and incident destination, then try again.')
+        createdCount += result.created_count || 0
+        duplicateCount += result.duplicate_count || 0
+        incidentResult = result
+        uploadedNames.push(file.name)
+      } catch (uploadError) {
+        failedFiles.push(file)
+        const message = uploadError.name === 'TypeError'
+          ? 'Could not reach the ChroniX backend.'
+          : uploadError.name === 'SyntaxError'
+            ? 'The backend returned an unreadable response.'
+            : uploadError.message
+        failureMessages.push(`${file.name}: ${message}`)
+      }
+    }
+
+    if (uploadedNames.length) {
+      const fileLabel = uploadedNames.length === 1 ? uploadedNames[0] : `${uploadedNames.length} files`
+      setStatus(createdCount
+        ? `${fileLabel} - Evidence added successfully - ${createdCount} evidence events added${duplicateCount ? `; ${duplicateCount} duplicate events skipped` : ''}.`
+        : `${fileLabel} uploaded; no new evidence events were added${duplicateCount ? ` (${duplicateCount} duplicates)` : ''}.`)
+      onUploaded?.({ incident_id: incidentResult?.incident_id || selectedTarget || null, target: selectedTarget || '' })
+    } else {
+      setStatus('')
+    }
+    setFiles(failedFiles)
+    if (failureMessages.length) setError(failureMessages.join(' '))
+    setUploading(false)
+  }
+
+  return <section className="evidence-upload">
+    <div className="section-heading"><div><p className="eyebrow">Evidence ingestion</p><h2>Add source evidence</h2></div></div>
+    <div className="upload-controls">
+      <label className={`upload-droparea dropzone ${dragging ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); setDragging(true) }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false) }} onDrop={event => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files) }}>
+        <UploadCloud size={22} /><strong>{dragging ? 'Drop evidence to add it' : 'Drop files here or choose files'}</strong><span>TXT | LOG | CSV | JSON | PDF</span>
+        <input id="evidence-upload-input" type="file" multiple accept=".txt,.log,.csv,.json,.pdf" onChange={event => { addFiles(event.target.files); event.currentTarget.value = '' }} />
+      </label>
+      {files.length > 0 && <div className="upload-selected-files">{files.map((file, index) => <div className="file-row" key={`${file.name}:${file.lastModified}:${index}`}><FileText size={16} /><span>{file.name}<small>{file.name.split('.').pop()?.toUpperCase()} | {file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`}</small></span><button type="button" aria-label={`Remove ${file.name}`} disabled={uploading} onClick={() => setFiles(current => current.filter((_, itemIndex) => itemIndex !== index))}><X size={15} /></button></div>)}</div>}
+      {incidentId ? <span className="upload-target">Target: this incident</span> : <select aria-label="Evidence destination" value={target} onChange={event => setTarget(event.target.value)}><option value="">Active incident</option>{targets.filter(item => item.status !== 'active').map(item => <option key={item.incident_id} value={item.incident_id}>{item.incident_title} / {item.incident_id.slice(0, 8)}</option>)}</select>}
+      <button className="analyze-button upload-submit" disabled={!files.length || uploading} onClick={submit}>{uploading ? 'Uploading & analyzing...' : 'Upload & Analyze'}<ArrowUpRight size={16} /></button>
+    </div>
+    <small className="upload-hint">Up to 10 MB per file. Evidence is persisted and the deterministic analysis refreshes after upload. PDF text extraction only; scanned PDFs need OCR.</small>
+    {status && <p className="upload-success" role="status">{status}</p>}
+    {error && <p className="error" role="alert">{error}</p>}
+  </section>
+}
 function HistoryDetail({ detail, onBack, onUploaded }) {
-  return <section className="history-detail"><button className="back-button" onClick={onBack}><ArrowLeft size={16} />Incident History</button><div className="history-detail-heading"><div><p className="eyebrow">Persisted investigation</p><h1>{detail.incident_title}</h1><p>{detail.incident_id} / revision {detail.revision}</p></div><div className="root-status"><span>Root cause</span><strong>{detail.root_cause_status}</strong></div></div><EvidenceUpload incidentId={detail.incident_id} onUploaded={onUploaded} />{detail.analysis ? <IntelligenceWorkspace analysis={detail.analysis} stateLabel={detail.status?.toUpperCase() || 'HISTORICAL'} /> : <div className="history-empty"><h2>Analysis not available.</h2><p>The evidence is persisted, but no analysis has been stored for this incident.</p></div>}<section className="evidence-section"><div className="section-heading"><div><p className="eyebrow">Source record</p><h2>Evidence</h2></div><span className="count">{detail.evidence.length} events</span></div><div className="evidence-records">{detail.evidence.map(item => <article key={item.evidence_id}><div><strong>{item.event}</strong><small>{item.evidence_id} / {item.source_name}</small></div><span>{item.classification}</span><p>{item.raw_evidence}</p></article>)}</div></section><section className="relationships-section"><div className="section-heading"><div><p className="eyebrow">Correlated signals</p><h2>Relationships</h2></div></div>{detail.relationships.length ? <ul>{detail.relationships.map(item => <li key={item.relationship_id}>{item.source_evidence_id} - {item.relationship_type} - {item.target_evidence_id}</li>)}</ul> : <p className="muted">No persisted relationships for this incident.</p>}</section></section>
+  return <section className="history-detail"><button className="back-button" onClick={onBack}><ArrowLeft size={16} />Incident History</button><div className="history-detail-heading"><div><p className="eyebrow">Persisted investigation</p><h1>{detail.incident_title}</h1><p>{detail.incident_id} / revision {detail.revision}</p></div><RootCauseStatus analysis={detail.analysis || { root_cause_status: detail.root_cause_status }} /></div><EvidenceUpload incidentId={detail.incident_id} onUploaded={onUploaded} />{detail.analysis ? <IntelligenceWorkspace analysis={detail.analysis} stateLabel={detail.status?.toUpperCase() || 'HISTORICAL'} /> : <div className="history-empty"><h2>Analysis not available.</h2><p>The evidence is persisted, but no analysis has been stored for this incident.</p></div>}<section className="evidence-section"><div className="section-heading"><div><p className="eyebrow">Source record</p><h2>Evidence</h2></div><span className="count">{detail.evidence.length} events</span></div><div className="evidence-records">{detail.evidence.map(item => <article key={item.evidence_id}><div><strong>{item.event}</strong><small>{item.evidence_id} / {item.source_name}</small></div><span>{item.classification}</span><p>{item.raw_evidence}</p></article>)}</div></section><section className="relationships-section"><div className="section-heading"><div><p className="eyebrow">Correlated signals</p><h2>Relationships</h2></div></div>{detail.relationships.length ? <ul>{detail.relationships.map(item => <li key={item.relationship_id}>{item.source_evidence_id} - {item.relationship_type} - {item.target_evidence_id}</li>)}</ul> : <p className="muted">No persisted relationships for this incident.</p>}</section></section>
 }
 
 function App() {
-  const [files, setFiles] = useState([])
   const [analysis, setAnalysis] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -179,15 +298,52 @@ function App() {
   }, [view, selectedIncidentId])
 
   const navigate = (path, nextView, incidentId = null) => { window.history.pushState({}, '', path); setView(nextView); setSelectedIncidentId(incidentId) }
-  const addFiles = incoming => { setFiles(current => [...current, ...Array.from(incoming).filter(file => !current.some(existing => existing.name === file.name))]); setError('') }
   const runAnalysis = async request => { setLoading(true); setError(''); setStage(0); const timer = setInterval(() => setStage(current => Math.min(current + 1, stages.length - 1)), 500); try { const response = await request(); if (!response.ok) throw new Error(); setAnalysis(await response.json()) } catch { setError('Analysis could not be completed. Check the backend connection and try again.') } finally { clearInterval(timer); setStage(-1); setLoading(false) } }
-  const analyze = () => { if (!files.length) return; runAnalysis(() => { const body = new FormData(); files.forEach(file => body.append('files', file)); return fetch(`${API_URL}/api/v1/incidents/analyze`, { method: 'POST', body }) }) }
   const analyzeActive = () => runAnalysis(() => fetch(`${API_URL}/api/v1/incidents/analyze-active`, { method: 'POST' }))
   const simulateDemo = async () => { setDemoBusy(true); setDemoMessage('Sending demo events...'); try { const response = await fetch(`${DEMO_URL}/simulate-incident`, { method: 'POST' }); const result = await response.json(); if (!response.ok) throw new Error(); setDemoMessage(`${result.events_sent} demo events sent. Loading the incident timeline.`); await refreshActive() } catch { setDemoStatus('offline'); setDemoMessage('Could not connect to the demo service. Check its configured URL and that the service is running.') } finally { setDemoBusy(false) } }
   const refreshDetail = () => { if (!selectedIncidentId) return; fetch(`${API_URL}/api/v1/incidents/${selectedIncidentId}`).then(response => response.json()).then(setDetail).catch(() => setDetailError(true)) }
-  const liveView = <><section className="hero"><div><p className="eyebrow">Operational truth, reconstructed</p><h1>Turn scattered signals into a story you can verify.</h1><p className="hero-copy">ChroniX connects logs, conversations, reports, and metrics into one chronological incident view. Every conclusion stays linked to evidence.</p></div><div className="hero-note"><ShieldCheck size={20} /><span>Evidence traceability<br /><strong>built into every event</strong></span></div></section><section className="workspace"><aside className="upload-panel"><div className="section-heading"><div><p className="eyebrow">01 / Collect</p><h2>Incident evidence</h2></div></div><div className="live-source"><div className="live-source-heading"><Radio size={16} /><span>LIVE SOURCES</span><span className={`connected-dot connected-${demoStatus}`} /></div><strong>ChroniX Demo Payment Service</strong><span className="connected-label">Demo service · port 9000</span><span className={`demo-health demo-${demoStatus}`}>{demoStatus === 'checking' ? 'Checking demo service...' : demoStatus === 'online' ? 'Demo service ready' : 'Demo service unavailable'}</span><div className="live-count">Events received: <b>{activeCount}</b></div><button className="active-analyze" disabled={demoBusy || demoStatus !== 'online'} onClick={simulateDemo}>{demoBusy ? 'Sending demo...' : 'Simulate 7 event incident'}<Radio size={15} /></button><button className="active-analyze" disabled={!activeCount || loading} onClick={analyzeActive}>Analyze Active Incident<ArrowUpRight size={15} /></button>{demoMessage && <p className="upload-hint">{demoMessage}</p>}</div><EvidenceUpload onUploaded={refreshActive} /><label className="dropzone" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); addFiles(event.dataTransfer.files) }}><UploadCloud size={26} /><strong>Drop files here</strong><span>or choose CSV, TXT, LOG, PDF</span><input type="file" multiple accept=".csv,.txt,.log,.json,.pdf" onChange={event => addFiles(event.target.files)} /></label>{files.length > 0 && <div className="file-list">{files.map(file => <div className="file-row" key={file.name}><FileText size={16} /><span>{file.name}</span><button aria-label={`Remove ${file.name}`} onClick={() => setFiles(files.filter(item => item.name !== file.name))}><X size={15} /></button></div>)}</div>}<button className="analyze-button" disabled={!files.length || loading} onClick={analyze}>{loading ? 'Reconstructing...' : 'Analyze incident'}<ArrowUpRight size={17} /></button>{error && <p className="error">{error}</p>}<div className="stages">{stages.map((item, index) => <div className={`stage ${stage >= index ? 'active' : ''}`} key={item}><span>{stage > index ? <Check size={13} /> : index + 1}</span>{item}</div>)}</div></aside><section className="results">{!analysis && !loading && <EmptyState />}{loading && <div className="loading-state"><div className="pulse" /><h2>Reconstructing incident</h2><p>Reading sources, correlating signals, and checking claims against evidence.</p></div>}{analysis && <IntelligenceWorkspace analysis={analysis} stateLabel="ACTIVE" />}</section></section></>
+  const liveView = (
+    <>
+      <section className="hero hero-compact">
+        <div>
+          <p className="eyebrow">Evidence-driven incident intelligence</p>
+          <h1>Turn scattered signals into a story you can verify.</h1>
+          <p className="hero-copy">ChroniX connects logs, conversations, reports, and metrics into one chronological incident view. Every conclusion stays linked to its source.</p>
+        </div>
+        <div className="hero-note"><ShieldCheck size={20} /><span>Evidence traceability<br /><strong>built into every event</strong></span></div>
+      </section>
+      <section className="workspace">
+        <aside className="upload-panel">
+          <div className="section-heading"><div><h2>Incident evidence</h2></div></div>
+          <div className="live-source">
+            <div className="live-source-heading"><Radio size={16} /><span>LIVE SOURCES</span><span className={`connected-dot connected-${demoStatus}`} /></div>
+            <strong>ChroniX Demo Payment Service</strong>
+            <span className="connected-label">Demo service / port {DEMO_PORT}</span>
+            <span className={`demo-health demo-${demoStatus}`}>{demoStatus === 'checking' ? 'Checking demo service...' : demoStatus === 'online' ? 'Demo service ready' : 'Demo service unavailable - simulation disabled'}</span>
+            <div className="live-count">Events received: <b>{activeCount}</b></div>
+            <div className="live-actions">
+              <button className="active-analyze" disabled={demoBusy || demoStatus !== 'online'} onClick={simulateDemo}>{demoBusy ? 'Sending demo...' : 'Simulate 7 event incident'}<Radio size={15} /></button>
+              <button className="active-analyze" disabled={!activeCount || loading} onClick={analyzeActive}>Analyze Active Incident<ArrowUpRight size={15} /></button>
+            </div>
+            {demoMessage && <p className="upload-hint">{demoMessage}</p>}
+          </div>
+          <EvidenceUpload onUploaded={result => {
+            refreshActive()
+            if (result?.target && result.incident_id) navigate(`/history/${result.incident_id}`, 'history', result.incident_id)
+          }} />
+          <WorkflowStrip current={analysis ? stages.length : loading ? stage : -1} />
+        </aside>
+        <section className="results">
+          {error && <p className="error" role="alert">{error}</p>}
+          {!analysis && !loading && <EmptyState onUpload={() => document.getElementById('evidence-upload-input')?.click()} onSimulate={simulateDemo} />}
+          {loading && <div className="loading-state"><div className="pulse" /><h2>Reconstructing incident</h2><p>Reading sources, correlating signals, and checking claims against evidence.</p></div>}
+          {analysis && <IntelligenceWorkspace analysis={analysis} stateLabel="ACTIVE" />}
+        </section>
+      </section>
+    </>
+  )
   const historyView = selectedIncidentId ? detailLoading ? <div className="history-state">Loading incident...</div> : detailError || !detail ? <div className="history-state error">Unable to load incident.</div> : <HistoryDetail detail={detail} onBack={() => navigate('/history', 'history')} onUploaded={refreshDetail} /> : <section className="history-page"><div className="history-heading"><div><p className="eyebrow">Persistent record</p><h1>Incident History</h1><p>Browse reconstructed investigations stored by ChroniX.</p></div></div>{historyLoading ? <div className="history-state">Loading incident history...</div> : historyError ? <div className="history-state error">Unable to load incident history.</div> : <HistoryList incidents={history} onSelect={id => navigate(`/history/${id}`, 'history', id)} />}</section>
-  return <div className="app"><header><div className="brand"><div className="brand-mark"><Activity size={18} /></div><div><div className="brand-name">CHRONIX</div><div className="brand-sub">Evidence-driven incident intelligence</div></div></div><nav className="primary-nav"><button className={view === 'live' ? 'active' : ''} onClick={() => navigate('/', 'live')}>Live Incident</button><button className={view === 'history' ? 'active' : ''} onClick={() => navigate('/history', 'history')}>Incident History</button></nav><div className={`header-status backend-${backendStatus}`}><span className="live-dot" /> {backendStatus === 'online' ? 'deterministic analysis ready' : backendStatus === 'checking' ? 'connecting backend' : 'backend unavailable'}</div></header><main>{view === 'live' ? liveView : historyView}</main><footer><span>CHRONIX / MVP</span><span>Evidence → Events → Correlation → Timeline → Intelligence</span></footer></div>
+  return <div className="app"><header><div className="brand"><div className="brand-mark"><Activity size={18} /></div><div><div className="brand-name">CHRONIX</div><div className="brand-sub">Evidence-driven incident intelligence</div></div></div><nav className="primary-nav"><button className={view === 'live' ? 'active' : ''} onClick={() => navigate('/', 'live')}>Live Incident</button><button className={view === 'history' ? 'active' : ''} onClick={() => navigate('/history', 'history')}>Incident History</button></nav><div className={`header-status backend-${backendStatus}`}><span className="live-dot" /> {backendStatus === 'online' ? 'deterministic ready' : backendStatus === 'checking' ? 'checking system' : 'backend unavailable'}</div></header><main>{view === 'live' ? liveView : historyView}</main><footer><span>CHRONIX / EVIDENCE-DRIVEN INCIDENT INTELLIGENCE</span><span>Evidence → Events → Correlation → Timeline → Intelligence</span></footer></div>
 }
 
 createRoot(document.getElementById('root')).render(<App />)

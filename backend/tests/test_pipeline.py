@@ -105,6 +105,81 @@ def test_normalization_sorting_and_classification():
     assert result.root_cause_status == "NOT CONFIRMED"
 
 
+def _causal_evidence(include_direct_claim: bool = False) -> list[Evidence]:
+    rows = [
+        ("deployment.log", b"2026-09-25 10:02 Payment service deployment 8f21 started\n"),
+        ("pool.log", b"2026-09-25 10:03 Payment database connection pool exhausted\n"),
+        ("database.log", b"2026-09-25 10:04 Database timeout errors increased\n"),
+        ("api.log", b"2026-09-25 10:05 Payment API errors increased\n"),
+    ]
+    if include_direct_claim:
+        rows.append(("impact-report.txt", b"2026-09-25 10:06 Deployment 8f21 caused database connection pool exhaustion\n"))
+    return [extract_lines(content, filename)[0] for filename, content in rows]
+
+
+def test_demo_evidence_remains_not_confirmed():
+    demo_rows = [
+        b"2026-09-25 10:02 API error rate increased\n",
+        b"2026-09-25 10:03 DB timeout\n",
+        b"2026-09-25 10:05 Payment service deployment started\n",
+        b"2026-09-25 10:08 DB failure suspected\n",
+        b"2026-09-25 10:10 Service restart\n",
+        b"2026-09-25 10:12 DB metrics normal\n",
+        b"2026-09-25 10:15 API errors decreased\n",
+    ]
+    evidence = [extract_lines(row, f"demo-{index}.log")[0] for index, row in enumerate(demo_rows)]
+
+    result = analyze(evidence, [])
+
+    assert result.root_cause_status == "NOT CONFIRMED"
+    assert result.root_cause_evidence_ids == []
+    assert result.root_cause_confidence is None
+
+
+def test_independent_ordered_causal_signals_are_probable():
+    result = analyze(_causal_evidence(), [])
+
+    assert result.root_cause_status == "PROBABLE"
+    assert result.root_cause_evidence_ids == [item.source_id for item in result.timeline]
+    assert result.root_cause_confidence == 0.8
+    assert "Direct deployment-impact evidence is missing" in result.root_cause_basis
+
+
+def test_direct_causal_claim_with_independent_corroboration_is_confirmed():
+    evidence = _causal_evidence(include_direct_claim=True)
+    result = analyze(evidence, [])
+
+    assert result.root_cause_status == "CONFIRMED"
+    assert set(result.root_cause_evidence_ids) == {item.source_id for item in evidence}
+    assert result.root_cause_confidence == 1.0
+
+
+def test_temporal_order_alone_cannot_confirm_root_cause():
+    evidence = [
+        extract_lines(b"2026-09-25 10:02 Payment deployment started\n", "deployment.log")[0],
+        extract_lines(b"2026-09-25 10:03 Database timeout\n", "database.log")[0],
+        extract_lines(b"2026-09-25 10:04 Payment API errors increased\n", "api.log")[0],
+    ]
+
+    result = analyze(evidence, [])
+
+    assert result.root_cause_status != "CONFIRMED"
+    assert result.root_cause_status == "NOT CONFIRMED"
+
+
+def test_contradictory_pool_metrics_prevent_confirmation():
+    evidence = _causal_evidence(include_direct_claim=True)
+    evidence.append(extract_lines(
+        b"2026-09-25 10:03:30 Connection pool metrics remained normal during deployment; the pool was never exhausted\n",
+        "pool-health.log",
+    )[0])
+
+    result = analyze(evidence, [])
+
+    assert result.root_cause_status == "NOT CONFIRMED"
+    assert result.root_cause_evidence_ids == []
+
+
 def test_analyze_endpoint():
     response = client.post("/api/v1/incidents/analyze", files=[("files", ("monitoring.csv", b"timestamp,event\n2026-09-25T10:02:00,API errors increased\n", "text/csv"))])
     assert response.status_code == 200

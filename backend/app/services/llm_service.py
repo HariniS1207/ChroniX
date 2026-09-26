@@ -24,7 +24,15 @@ certainty. Preserve uncertainty and the deterministic root-cause status.
 Claims have description, evidence_ids, and optional confidence from 0 to 1.
 incident_summary must describe observations and their order only; do not use
 causal language there. Put tentative causal ideas only in probable_causes and
-label them as unconfirmed. Never imply the root cause is confirmed.
+label them as unconfirmed when the deterministic assessment is NOT CONFIRMED or
+PROBABLE. When status is NOT CONFIRMED, describe candidate explanations as
+possible contributors supported by correlation; never state that one event
+caused another, and explicitly say direct causal evidence is missing where
+relevant. When status is PROBABLE, state that the explanation is probable but
+not directly confirmed. Use causal wording only when status is CONFIRMED and
+the supplied evidence supports that wording. Never set or override the
+deterministic root-cause status. Do not attach numeric confidence percentages
+unless the evidence itself supplies a measured probability.
 Do not return markdown, explanations, or reasoning."""
 
 
